@@ -5,8 +5,14 @@
 # deploy/uat/docker-compose.yml) and set the environment variables listed in
 # deploy/uat/README.md on the stack. The GitHub Actions workflow calls the
 # stack's webhook after every image push so Portainer re-pulls and redeploys.
+#
+# TLS is not terminated here. The host's NPMplus proxy forwards HTTPS traffic
+# to the single plain-HTTP entry port below (WEB_PORT, default 8080). The web
+# container passes the proxy's X-Forwarded-* headers on to the API.
 
-name: cannopy-uat
+# Compose and Portainer only accept lowercase project names, so the stack is
+# "cannopygo" on disk even though it is CannopyGo in conversation.
+name: cannopygo
 
 services:
   db:
@@ -37,13 +43,14 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-cannopy}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-cannopy}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
       AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET on the Portainer stack}
-      APP_VERSION: ${IMAGE_TAG:-latest}
+      # APP_VERSION is baked into the image by CI (the commit SHA); do not set it here.
 
   web:
     image: ${IMAGE_REGISTRY:-ghcr.io/redbeegroup}/cannopy-go-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       - api
+    # The only port the stack opens. Point the NPMplus proxy host at it.
     ports:
       - '${WEB_PORT:-8080}:80'
 

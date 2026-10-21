@@ -17,7 +17,9 @@ RUN pnpm --filter @cannopy/core build && pnpm --filter @cannopy/api build
 RUN pnpm --filter @cannopy/api --legacy deploy --prod /out
 
 FROM node:22-alpine AS runtime
-ENV NODE_ENV=production
+# CI passes the commit SHA so /api/health reports which build is running.
+ARG APP_VERSION=dev
+ENV NODE_ENV=production APP_VERSION=$APP_VERSION
 WORKDIR /app
 RUN addgroup -S app && adduser -S app -G app
 COPY --from=build --chown=app:app /out /app

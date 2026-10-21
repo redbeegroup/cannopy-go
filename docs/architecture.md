@@ -162,8 +162,9 @@ package is included) and carry health checks. TLS is terminated outside the
 stack: the UAT host's existing reverse proxy (or a Caddy/Traefik container that
 is already there) forwards to the `web` port.
 
-- **Needs you**: the UAT hostname and how TLS is handled on that host today.
-  Default: the stack exposes plain HTTP on port 8080 and the host proxy adds TLS.
+- Decided 2026-10-21: the UAT host runs NPMplus, which terminates TLS and
+  proxies to the stack's single HTTP port (8080). The `web` nginx forwards the
+  proxy's `X-Forwarded-Proto` so the API sees HTTPS. See `deploy/uat/README.md`.
 
 ### 10. Build and deploy
 
@@ -178,12 +179,12 @@ the click-by-click Portainer setup.
   GitHub needs `PORTAINER_WEBHOOK_URL` (or the four `PORTAINER_*` API secrets).
   Portainer needs `POSTGRES_PASSWORD` and `AUTH_SECRET` as stack variables, and
   a registry credential to pull the private images.
-- **Needs you**: the registry. Default: GitHub Container Registry
-  (`ghcr.io/redbeegroup/cannopy-go-api` and `-web`) because it needs no extra
-  account and the workflow's own token can push. Docker Hub or a self-hosted
-  registry works with two lines changed in the workflow and the stack file.
-- **Needs you**: the Portainer webhook URL (or endpoint id and stack id) once
-  the stack exists, and the stack name. Default name: `cannopy-uat`.
+- Decided 2026-10-21: GitHub Container Registry
+  (`ghcr.io/redbeegroup/cannopy-go-api` and `-web`, private, so Portainer holds
+  a read-only registry credential). Docker Hub or a self-hosted registry works
+  with two lines changed in the workflow and the stack file.
+- Decided 2026-10-21: the Portainer stack is `cannopygo` (CannopyGo, lowercased
+  because Compose requires it), updated through its webhook.
 
 ### 11. Repository layout and tooling
 
@@ -216,8 +217,10 @@ pnpm workspaces, strict TypeScript, Biome for lint and format, Vitest for tests.
 
 ## Open items that need the owner's answer
 
-1. Registry: GitHub Container Registry (default) or another.
-2. Portainer: webhook URL or API details, and the stack name (default `cannopy-uat`).
-3. UAT hostname and where TLS terminates (default: host reverse proxy to port 8080).
+1. Registry: GitHub Container Registry. Decided.
+2. Portainer: stack `cannopygo` with a webhook. Decided; the webhook URL lives
+   in the GitHub secret `PORTAINER_WEBHOOK_URL`.
+3. TLS: NPMplus on the UAT host proxies to port 8080. Decided. The host name
+   is set in NPMplus and nowhere in this repository.
 4. Primary login: phone (default) or email.
 5. Play Store listing in version 1 (default: no, PWA only).
