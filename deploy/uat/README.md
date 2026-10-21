@@ -42,7 +42,7 @@ app must be opened through the proxy host name, not through port 8080 directly.
      | `AUTH_SECRET` | yes | 32+ random characters, `openssl rand -hex 32` |
      | `IMAGE_REGISTRY` | no | Default `ghcr.io/redbeegroup` |
      | `IMAGE_TAG` | no | Default `latest`; set to a commit SHA to pin |
-     | `WEB_PORT` | no | Host port NPMplus forwards to, default 8080 |
+     | `WEB_PORT` | no | Host port NPMplus forwards to, default 8080. The docker-main stack uses `8081` because 8080 belongs to another container |
      | `CORS_ORIGINS` | no | Leave empty; the web container proxies `/api` so there is no cross-origin call |
      | `LOG_LEVEL` | no | `info` by default |
      | `SMS_PROVIDER` | no | `log` (default) writes sign-in codes to the `api` container log; `webhook` posts them to `SMS_WEBHOOK_URL` |
@@ -64,7 +64,7 @@ app must be opened through the proxy host name, not through port 8080 directly.
 4. **NPMplus proxy host.** Hosts > Proxy Hosts > Add Proxy Host:
    - Domain Names: the host name you want for CannopyGo.
    - Scheme `http`, Forward Hostname the Docker host as NPMplus reaches it,
-     Forward Port the `WEB_PORT` value (8080). If NPMplus runs in a container
+     Forward Port the `WEB_PORT` value (8081 on docker-main). If NPMplus runs in a container
      on the default bridge network, the host is usually reachable as
      `172.17.0.1` or `host.docker.internal`; if NPMplus uses host networking,
      `127.0.0.1` works.
@@ -86,7 +86,7 @@ The call is `PUT /api/stacks/{id}/git/redeploy?endpointId={endpointId}` with
 - `https://<your host name>/api/health` returns
   `{"status":"ok","database":"ok","version":"<commit sha>"}` once the proxy is
   up. `version` changes after each deploy, which is the quickest way to see
-  that the webhook fired. (`http://<docker host>:8080/api/health` answers the
+  that the webhook fired. (`http://<docker host>:8081/api/health` answers the
   same without the proxy.)
 - In GitHub, the "Deploy to UAT (Portainer)" job on the latest `main` run
   should print "Portainer redeploy requested." rather than "skipping deploy".
