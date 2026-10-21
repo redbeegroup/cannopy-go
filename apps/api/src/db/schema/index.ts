@@ -1,0 +1,403 @@
+import { relations, sql } from 'drizzle-orm';
+import {
+  bigint,
+  bigserial,
+  boolean,
+  date,
+  index,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  primaryKey,
+  smallint,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
+
+/*
+ * Database schema for Cannopy GO. Mirrors the entity schemas in @cannopy/core.
+ * Conventions (see docs/architecture.md):
+ *  - every tenant-owned row carries business_id; the API filters on it for every query
+ *  - money is bigint whole kyat; quantities are integer thousandths of a unit
+ *  - bilingual names are two columns, name_en and name_my
+ *  - ids are UUID v7 created on the device, so the server never allocates ids
+ *  - soft delete via deleted_at so deletions reach offline devices through sync
+ */
+
+export const languageEnum = pgEnum('language', ['en', 'my']);
+export const accountingModeEnum = pgEnum('accounting_mode', ['cash', 'accrual']);
+export const businessTypeEnum = pgEnum('business_type', [
+  'shop',
+  'food_and_drink',
+  'trader',
+  'service',
+  'online_seller',
+  'other',
+]);
+export const userRoleEnum = pgEnum('user_role', ['owner', 'cashier']);
+export const accountTypeEnum = pgEnum('account_type', [
+  'asset',
+  'liability',
+  'equity',
+  'income',
+  'cost_of_sales',
+  'expense',
+]);
+export const ownerGroupEnum = pgEnum('owner_group', [
+  'my_money',
+  'owed_to_me',
+  'stock',
+  'things_i_own',
+  'i_owe',
+  'owner',
+  'money_in',
+  'money_out',
+]);
+export const moneyKindEnum = pgEnum('money_kind', ['cash', 'bank', 'wallet']);
+export const itemTypeEnum = pgEnum('item_type', ['stocked', 'not_tracked', 'service']);
+export const documentTypeEnum = pgEnum('document_type', [
+  'sale',
+  'purchase',
+  'expense',
+  'payment_in',
+  'payment_out',
+  'owner_in',
+  'owner_out',
+  'transfer',
+  'stock_adjustment',
+  'opening_balance',
+]);
+export const documentStatusEnum = pgEnum('document_status', [
+  'open',
+  'partly_paid',
+  'paid',
+  'void',
+]);
+export const journalBasisEnum = pgEnum('journal_basis', ['accrual', 'cash', 'both']);
+export const syncEntityEnum = pgEnum('sync_entity', [
+  'account',
+  'contact',
+  'item',
+  'document',
+  'stock_movement',
+  'journal_entry',
+]);
+export const syncOpEnum = pgEnum('sync_op', ['upsert', 'delete']);
+export const auditActionEnum = pgEnum('audit_action', [
+  'create',
+  'update',
+  'delete',
+  'mode_switch',
+]);
+
+const timestamps = {
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+};
+
+const synced = {
+  ...timestamps,
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  serverSeq: bigint('server_seq', { mode: 'number' }),
+};
+
+export const businesses = pgTable('businesses', {
+  id: uuid('id').primaryKey(),
+  nameEn: text('name_en').notNull().default(''),
+  nameMy: text('name_my').notNull().default(''),
+  type: businessTypeEnum('type').notNull().default('other'),
+  primaryLanguage: languageEnum('primary_language').notNull().default('my'),
+  accountingMode: accountingModeEnum('accounting_mode').notNull().default('cash'),
+  fiscalYearStartMonth: smallint('fiscal_year_start_month').notNull().default(4),
+  currency: text('currency').notNull().default('MMK'),
+  taxEnabled: boolean('tax_enabled').notNull().default(false),
+  lockDate: date('lock_date'),
+  digitGrouping: text('digit_grouping').notNull().default('thousand'),
+  myanmarDigits: boolean('myanmar_digits').notNull().default(false),
+  ...timestamps,
+});
+
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').primaryKey(),
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    name: text('name').notNull(),
+    phone: text('phone'),
+    email: text('email'),
+    role: userRoleEnum('role').notNull().default('owner'),
+    language: languageEnum('language').notNull().default('my'),
+    /** Argon2 or bcrypt hash; null until the auth thread sets the login method. */
+    passwordHash: text('password_hash'),
+    ...timestamps,
+  },
+  (t) => [
+    index('users_business_idx').on(t.businessId),
+    uniqueIndex('users_email_unique').on(t.email).where(sql`email is not null`),
+    uniqueIndex('users_phone_unique').on(t.phone).where(sql`phone is not null`),
+  ],
+);
+
+export const accounts = pgTable(
+  'accounts',
+  {
+    id: uuid('id').primaryKey(),
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    code: text('code').notNull(),
+    type: accountTypeEnum('type').notNull(),
+    ownerGroup: ownerGroupEnum('owner_group').notNull(),
+    nameEn: text('name_en').notNull().default(''),
+    nameMy: text('name_my').notNull().default(''),
+    isSystem: boolean('is_system').notNull().default(false),
+    isHidden: boolean('is_hidden').notNull().default(false),
+    moneyKind: moneyKindEnum('money_kind'),
+    provider: text('provider'),
+    defaultFee: bigint('default_fee', { mode: 'number' }),
+    ...synced,
+  },
+  (t) => [
+    uniqueIndex('accounts_business_code_unique').on(t.businessId, t.code),
+    index('accounts_business_seq_idx').on(t.businessId, t.serverSeq),
+  ],
+);
+
+export const contacts = pgTable(
+  'contacts',
+  {
+    id: uuid('id').primaryKey(),
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    nameEn: text('name_en').notNull().default(''),
+    nameMy: text('name_my').notNull().default(''),
+    phone: text('phone'),
+    isCustomer: boolean('is_customer').notNull().default(true),
+    isSupplier: boolean('is_supplier').notNull().default(false),
+    creditLimit: bigint('credit_limit', { mode: 'number' }),
+    note: text('note').notNull().default(''),
+    ...synced,
+  },
+  (t) => [index('contacts_business_seq_idx').on(t.businessId, t.serverSeq)],
+);
+
+export const items = pgTable(
+  'items',
+  {
+    id: uuid('id').primaryKey(),
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    nameEn: text('name_en').notNull().default(''),
+    nameMy: text('name_my').notNull().default(''),
+    type: itemTypeEnum('type').notNull().default('stocked'),
+    unitEn: text('unit_en').notNull().default('piece'),
+    unitMy: text('unit_my').notNull().default(''),
+    sellingPrice: bigint('selling_price', { mode: 'number' }),
+    averageCost: bigint('average_cost', { mode: 'number' }).notNull().default(0),
+    lastCost: bigint('last_cost', { mode: 'number' }),
+    quantityOnHandMilli: bigint('quantity_on_hand_milli', { mode: 'number' }).notNull().default(0),
+    lowStockLevelMilli: bigint('low_stock_level_milli', { mode: 'number' }),
+    barcode: text('barcode'),
+    photoUrl: text('photo_url'),
+    locationId: uuid('location_id'),
+    lotRef: text('lot_ref'),
+    ...synced,
+  },
+  (t) => [
+    index('items_business_seq_idx').on(t.businessId, t.serverSeq),
+    index('items_business_barcode_idx').on(t.businessId, t.barcode),
+  ],
+);
+
+export const documents = pgTable(
+  'documents',
+  {
+    id: uuid('id').primaryKey(),
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    type: documentTypeEnum('type').notNull(),
+    date: date('date').notNull(),
+    number: integer('number'),
+    contactId: uuid('contact_id').references(() => contacts.id),
+    moneyAccountId: uuid('money_account_id').references(() => accounts.id),
+    toMoneyAccountId: uuid('to_money_account_id').references(() => accounts.id),
+    /** Array of DocumentLine (see @cannopy/core). Lines are never queried on their own in v1. */
+    lines: jsonb('lines').notNull().default([]),
+    /** Array of { documentId, amount } for payments. */
+    allocations: jsonb('allocations').notNull().default([]),
+    total: bigint('total', { mode: 'number' }).notNull(),
+    feeAmount: bigint('fee_amount', { mode: 'number' }).notNull().default(0),
+    status: documentStatusEnum('status').notNull().default('open'),
+    note: text('note').notNull().default(''),
+    attachmentUrl: text('attachment_url'),
+    createdByUserId: uuid('created_by_user_id')
+      .notNull()
+      .references(() => users.id),
+    deviceId: text('device_id').notNull(),
+    ...synced,
+  },
+  (t) => [
+    index('documents_business_date_idx').on(t.businessId, t.date),
+    index('documents_business_contact_idx').on(t.businessId, t.contactId),
+    index('documents_business_seq_idx').on(t.businessId, t.serverSeq),
+    uniqueIndex('documents_business_type_number_unique')
+      .on(t.businessId, t.type, t.number)
+      .where(sql`number is not null`),
+  ],
+);
+
+export const stockMovements = pgTable(
+  'stock_movements',
+  {
+    id: uuid('id').primaryKey(),
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => items.id),
+    date: date('date').notNull(),
+    quantityMilli: bigint('quantity_milli', { mode: 'number' }).notNull(),
+    unitCost: bigint('unit_cost', { mode: 'number' }).notNull(),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => documents.id),
+    ...synced,
+  },
+  (t) => [
+    index('stock_movements_item_date_idx').on(t.itemId, t.date),
+    index('stock_movements_document_idx').on(t.documentId),
+    index('stock_movements_business_seq_idx').on(t.businessId, t.serverSeq),
+  ],
+);
+
+export const journalEntries = pgTable(
+  'journal_entries',
+  {
+    id: uuid('id').primaryKey(),
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => documents.id),
+    date: date('date').notNull(),
+    basis: journalBasisEnum('basis').notNull(),
+    ...synced,
+  },
+  (t) => [
+    index('journal_entries_business_date_idx').on(t.businessId, t.date),
+    index('journal_entries_document_idx').on(t.documentId),
+    index('journal_entries_business_seq_idx').on(t.businessId, t.serverSeq),
+  ],
+);
+
+/** Journal lines are a real table so reports can sum by account with SQL. */
+export const journalLines = pgTable(
+  'journal_lines',
+  {
+    entryId: uuid('entry_id')
+      .notNull()
+      .references(() => journalEntries.id, { onDelete: 'cascade' }),
+    lineNo: smallint('line_no').notNull(),
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    debit: bigint('debit', { mode: 'number' }).notNull().default(0),
+    credit: bigint('credit', { mode: 'number' }).notNull().default(0),
+    contactId: uuid('contact_id').references(() => contacts.id),
+    itemId: uuid('item_id').references(() => items.id),
+  },
+  (t) => [
+    primaryKey({ columns: [t.entryId, t.lineNo] }),
+    index('journal_lines_business_account_idx').on(t.businessId, t.accountId),
+  ],
+);
+
+/** Every accepted mutation, keyed by the client id, so a retried push is applied once. */
+export const syncMutations = pgTable(
+  'sync_mutations',
+  {
+    id: uuid('id').primaryKey(),
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    deviceId: text('device_id').notNull(),
+    entity: syncEntityEnum('entity').notNull(),
+    entityId: uuid('entity_id').notNull(),
+    op: syncOpEnum('op').notNull(),
+    data: jsonb('data').notNull().default({}),
+    clientAt: timestamp('client_at', { withTimezone: true }).notNull(),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('sync_mutations_business_idx').on(t.businessId, t.receivedAt)],
+);
+
+/** Ordered change log that devices pull from. seq is global, filtered per business. */
+export const syncChanges = pgTable(
+  'sync_changes',
+  {
+    seq: bigserial('seq', { mode: 'number' }).primaryKey(),
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    entity: syncEntityEnum('entity').notNull(),
+    entityId: uuid('entity_id').notNull(),
+    op: syncOpEnum('op').notNull(),
+    data: jsonb('data').notNull().default({}),
+    mutationId: uuid('mutation_id').references(() => syncMutations.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('sync_changes_business_seq_idx').on(t.businessId, t.seq)],
+);
+
+export const auditLog = pgTable(
+  'audit_log',
+  {
+    id: uuid('id').primaryKey(),
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+    entity: text('entity').notNull(),
+    entityId: uuid('entity_id').notNull(),
+    action: auditActionEnum('action').notNull(),
+    before: jsonb('before'),
+    after: jsonb('after'),
+  },
+  (t) => [index('audit_log_business_at_idx').on(t.businessId, t.at)],
+);
+
+export const businessesRelations = relations(businesses, ({ many }) => ({
+  users: many(users),
+  accounts: many(accounts),
+  contacts: many(contacts),
+  items: many(items),
+  documents: many(documents),
+}));
+
+export const journalEntriesRelations = relations(journalEntries, ({ many, one }) => ({
+  lines: many(journalLines),
+  document: one(documents, { fields: [journalEntries.documentId], references: [documents.id] }),
+}));
+
+export const journalLinesRelations = relations(journalLines, ({ one }) => ({
+  entry: one(journalEntries, { fields: [journalLines.entryId], references: [journalEntries.id] }),
+}));

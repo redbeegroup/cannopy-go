@@ -1,0 +1,18 @@
+{
+  "app": { "name": "Cannopy GO", "tagline": "Simple books for your business" },
+  "language": { "switch": "မြန်မာ", "current": "English" },
+  "status": {
+    "online": "Online. Changes are saved and synced.",
+    "offline": "Offline. Changes are saved on this device and will sync later.",
+    "pending": "{{count}} change waiting to sync",
+    "pending_plural": "{{count}} changes waiting to sync",
+    "server": "Server: {{state}}"
+  },
+  "actions": { "sell": "Sell", "spend": "Spend", "get_paid": "Get paid" },
+  "home": {
+    "money_today": "Money today",
+    "who_owes_me": "Who owes me",
+    "profit_this_month": "Profit this month",
+    "scaffold_note": "This is the architecture scaffold. The real screens arrive in the mobile UI thread."
+  }
+}
