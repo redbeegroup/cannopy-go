@@ -135,17 +135,26 @@ language persists on the device and is also stored on the business and the user
 for receipts and exports. Zawgyi conversion at input uses Google's
 `myanmar-tools` and is thread 4's job on the text fields.
 
-### 8. Authentication (shape decided, implementation deferred)
+### 8. Authentication: phone number and a one-time code
 
-Owner only in version 1. Login by phone number or email plus a password, with a
-one-time code by SMS as a later option once an SMS provider is chosen. The
-session is a signed token kept on the device so the app opens and records
-offline; the token is only checked when syncing. The `users` table and the
-`AUTH_SECRET` setting are in place; the sync routes currently read a dev-only
-header and must not be exposed publicly until the auth work lands.
+Built in the "Sign-in and joining a business" thread; the full description is
+in [sign-in.md](./sign-in.md). The phone number is the identity, because that
+is what an owner has. Signing in sends a six-digit code to the number and
+trades it for a long-lived device session token. The token is kept on the
+device and sent as a bearer token when syncing, so the app opens and records
+offline and only the sync is refused when the token is no longer good; the
+device then shows "Sign in again" and keeps every record until it can send
+them. A `users` row is one phone; `memberships` say which businesses that
+phone can open and as what (owner or member). Owners invite by phone number.
 
-- **Needs you**: phone or email as the primary login. Default: phone, because
-  that is what an owner has; email optional.
+- No SMS provider is needed to run: `SMS_PROVIDER=log` writes the code to the
+  API log (read it in Portainer on UAT), `SMS_PROVIDER=webhook` posts it to any
+  HTTP gateway (an n8n flow, a local operator's API), and `AUTH_DEV_CODE`
+  fixes the code for testing on a phone. A real provider is one more case in
+  `apps/api/src/services/sms.ts`.
+- Alternatives: email and password (owners rarely have email, and passwords
+  get forgotten); a third-party identity service (another account and a
+  dependency on a foreign provider for a Myanmar user base).
 
 ### 9. Containers
 

@@ -58,17 +58,31 @@ Then open http://localhost:8080. This builds the same images CI builds and is
 the closest thing to UAT on your machine. The `api` container runs migrations
 on start; `docker compose logs api` shows them.
 
-## Trying the sync endpoints
+## Signing in during development
 
-The sync routes read a development-only header until authentication lands:
+Sign-in sends a six-digit code by SMS. Nothing is sent in development:
+`SMS_PROVIDER=log` (the default) writes the code to the API log, and outside
+production the request-code reply also carries it, so the sign-in screen shows
+"Test mode: your code is 123456". To fix the code instead (handy on a phone
+against UAT), set `AUTH_DEV_CODE=123456` on the API.
+
+The API wants a bearer token. From the shell:
 
 ```bash
-curl -s localhost:3000/api/health
-curl -s -X POST localhost:3000/api/sync/push \
-  -H 'content-type: application/json' -H 'x-dev-user-id: <a user uuid>' \
-  -d '{"businessId":"<business uuid>","mutations":[]}'
-curl -s 'localhost:3000/api/sync/pull?businessId=<business uuid>&since=0'
+curl -s -X POST localhost:3000/api/auth/request-code \
+  -H 'content-type: application/json' -d '{"phone":"+959123456789","language":"en"}'
+# -> {"phone":"+959123456789","expiresInSeconds":600,"devCode":"482913"}
+curl -s -X POST localhost:3000/api/auth/verify-code \
+  -H 'content-type: application/json' \
+  -d '{"phone":"+959123456789","code":"482913","deviceId":"curl"}'
+# -> {"token":"...","user":{...},"businesses":[...],"invites":[...],"isNewUser":true}
+curl -s localhost:3000/api/me -H 'authorization: Bearer <token>'
+curl -s 'localhost:3000/api/sync/pull?businessId=<business uuid>&since=0' \
+  -H 'authorization: Bearer <token>'
 ```
+
+The whole flow, with the environment variables and the SMS seam, is in
+[sign-in.md](./sign-in.md).
 
 ## Testing the app offline
 

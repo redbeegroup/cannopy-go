@@ -4,13 +4,13 @@ import {
   SYSTEM_ACCOUNT_CODES as C,
   dayBefore,
   labelFromInput,
+  type MemberRole,
   newId,
-  type User,
 } from '@cannopy/core';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
-import { api, isNetworkError } from '../data/api';
+import { api, isAuthError, isNetworkError } from '../data/api';
 import { newLine, repo } from '../data/repo';
 import { useSessionState } from '../data/session';
 import { localDb } from '../db/local';
@@ -19,14 +19,16 @@ import { today, useLanguage } from '../ui/format';
 
 /**
  * Five-minute setup (scope doc, journey 1), cut to the questions a first sale
- * needs: language, business name and type, fiscal year, opening money. Opening
- * stock and customers who already owe are added from their own screens, where
- * the owner can see what they are doing. Currency is MMK and is not asked.
+ * needs: business name and type, fiscal year, opening money. Language and the
+ * owner's name and phone were taken at sign-in. Opening stock and customers
+ * who already owe are added from their own screens, where the owner can see
+ * what they are doing. Currency is MMK and is not asked.
  *
  * Creating the business is the one step that needs the server, because the
- * API assigns the chart of accounts. Everything after it works offline.
+ * API assigns the chart of accounts and makes the signed-in user its owner.
+ * Everything after it works offline.
  */
-type Step = 'language' | 'business' | 'year' | 'money' | 'done';
+type Step = 'business' | 'year' | 'money';
 
 const BUSINESS_TYPES: Business['type'][] = [
   'shop',
@@ -38,14 +40,12 @@ const BUSINESS_TYPES: Business['type'][] = [
 ];
 
 export function Setup() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const language = useLanguage();
   const navigate = useNavigate();
-  const { setSession } = useSessionState();
-  const [step, setStep] = useState<Step>('language');
+  const { auth, session, openBusiness } = useSessionState();
+  const [step, setStep] = useState<Step>('business');
   const [name, setName] = useState('');
-  const [owner, setOwner] = useState('');
-  const [phone, setPhone] = useState('');
   const [type, setType] = useState<Business['type']>('shop');
   const [fiscalMonth, setFiscalMonth] = useState(4);
   const [cash, setCash] = useState<number | null>(null);
@@ -54,10 +54,11 @@ export function Setup() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const steps: Step[] = ['language', 'business', 'year', 'money'];
+  const steps: Step[] = ['business', 'year', 'money'];
   const index = steps.indexOf(step);
 
   const finish = async () => {
+    if (!auth) return navigate('/sign-in', { replace: true });
     setBusy(true);
     setError(null);
     const now = new Date().toISOString();
@@ -76,24 +77,13 @@ export function Setup() {
       createdAt: now,
       updatedAt: now,
     };
-    const user: User = {
-      id: newId(),
-      businessId: business.id,
-      name: owner.trim() || name.trim(),
-      phone: phone.trim() || null,
-      email: null,
-      role: 'owner',
-      language,
-      createdAt: now,
-      updatedAt: now,
-    };
     try {
-      const created = await api<{ business: Business; owner: User; accounts: Account[] }>(
+      const created = await api<{ business: Business; role: MemberRole; accounts: Account[] }>(
         '/businesses',
-        { body: { business, owner: user }, userId: user.id },
+        { body: { business } },
       );
+      await openBusiness(created.business, created.role);
       await localDb.accounts.bulkPut(created.accounts);
-      await setSession({ business: created.business, user: created.owner });
 
       const byCode = new Map(created.accounts.map((a) => [a.code, a.id]));
       const opening = [
@@ -104,7 +94,7 @@ export function Setup() {
       if (opening.length > 0) {
         const doc = await repo.newDocument(
           business.id,
-          user.id,
+          auth.user.id,
           'opening_balance',
           dayBefore(today()),
         );
@@ -117,6 +107,7 @@ export function Setup() {
       }
       navigate('/', { replace: true });
     } catch (err) {
+      if (isAuthError(err)) return navigate('/sign-in?again=1', { replace: true });
       setError(isNetworkError(err) ? t('setup.need_internet') : t('setup.failed'));
     } finally {
       setBusy(false);
@@ -131,38 +122,6 @@ export function Setup() {
             {steps.map((s, i) => (
               <span key={s} className={i <= index ? 'on' : ''} />
             ))}
-          </div>
-        ) : null}
-
-        {step === 'language' ? (
-          <div className="setup-step">
-            <div className="brand">
-              <img src="/icons/icon.svg" alt="" width="72" height="72" />
-              <h1>Cannopy GO</h1>
-            </div>
-            <p className="lead">{t('setup.pick_language')}</p>
-            <div className="stack">
-              <button
-                type="button"
-                className="big-button"
-                onClick={() => {
-                  void i18n.changeLanguage('my');
-                  setStep('business');
-                }}
-              >
-                မြန်မာ
-              </button>
-              <button
-                type="button"
-                className="big-button secondary"
-                onClick={() => {
-                  void i18n.changeLanguage('en');
-                  setStep('business');
-                }}
-              >
-                English
-              </button>
-            </div>
           </div>
         ) : null}
 
@@ -183,14 +142,7 @@ export function Setup() {
               wrap
               options={BUSINESS_TYPES.map((v) => ({ value: v, label: t(`business_type.${v}`) }))}
             />
-            <TextField label={t('setup.owner_name')} value={owner} onChange={setOwner} />
-            <TextField
-              label={t('setup.phone')}
-              value={phone}
-              onChange={setPhone}
-              type="tel"
-              hint={t('setup.phone_hint')}
-            />
+            <p className="muted small">{t('setup.owner_is', { name: auth?.user.name ?? '' })}</p>
           </div>
         ) : null}
 
@@ -250,25 +202,30 @@ export function Setup() {
         ) : null}
       </div>
 
-      {step !== 'language' ? (
-        <div className="screen-footer two">
-          <Button kind="secondary" onClick={() => setStep(steps[index - 1] ?? 'language')}>
-            {t('common.back')}
+      <div className="screen-footer two">
+        <Button
+          kind="secondary"
+          onClick={() =>
+            index === 0
+              ? navigate(session ? '/' : '/choose', { replace: true })
+              : setStep(steps[index - 1] ?? 'business')
+          }
+        >
+          {index === 0 ? t('common.cancel') : t('common.back')}
+        </Button>
+        {step === 'money' ? (
+          <Button onClick={() => void finish()} disabled={busy}>
+            {busy ? t('setup.creating') : t('setup.start')}
           </Button>
-          {step === 'money' ? (
-            <Button onClick={() => void finish()} disabled={busy}>
-              {busy ? t('setup.creating') : t('setup.start')}
-            </Button>
-          ) : (
-            <Button
-              onClick={() => setStep(steps[index + 1] ?? 'money')}
-              disabled={step === 'business' && name.trim() === ''}
-            >
-              {t('common.next')}
-            </Button>
-          )}
-        </div>
-      ) : null}
+        ) : (
+          <Button
+            onClick={() => setStep(steps[index + 1] ?? 'money')}
+            disabled={step === 'business' && name.trim() === ''}
+          >
+            {t('common.next')}
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

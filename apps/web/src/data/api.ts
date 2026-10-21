@@ -1,10 +1,21 @@
 /**
- * Thin fetch wrapper for the REST API. Every call carries the acting user in
- * the dev header the API reads until authentication lands (architecture doc,
- * decision 8). Errors arrive as `{ error, message, details? }` and are thrown
- * as ApiError so screens can show the code in the owner's language.
+ * Thin fetch wrapper for the REST API. Every call carries the device's session
+ * token as a bearer token (architecture doc, decision 8); the token is set
+ * here by the session provider when the app opens or the owner signs in.
+ * Errors arrive as `{ error, message, details? }` and are thrown as ApiError
+ * so screens can show the code in the owner's language.
  */
 export const API_BASE: string = import.meta.env.VITE_API_BASE_URL ?? '/api';
+
+let currentToken: string | null = null;
+
+export function setApiToken(token: string | null): void {
+  currentToken = token;
+}
+
+export function getApiToken(): string | null {
+  return currentToken;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -19,7 +30,8 @@ export class ApiError extends Error {
 }
 
 export interface ApiOptions {
-  userId?: string | null;
+  /** Overrides the session token, for the sign-in screens before a session exists. */
+  token?: string | null;
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   body?: unknown;
   query?: Record<string, string | number | undefined>;
@@ -33,7 +45,8 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   }
   const headers: Record<string, string> = { accept: 'application/json' };
   if (options.body !== undefined) headers['content-type'] = 'application/json';
-  if (options.userId) headers['x-dev-user-id'] = options.userId;
+  const token = options.token === undefined ? currentToken : options.token;
+  if (token) headers.authorization = `Bearer ${token}`;
 
   const init: RequestInit = {
     method: options.method ?? (options.body !== undefined ? 'POST' : 'GET'),
@@ -56,6 +69,11 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     );
   }
   return json as T;
+}
+
+/** True when the server no longer accepts this device's token: the owner must sign in again. */
+export function isAuthError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 401;
 }
 
 /** True for the failures that mean "no server right now" rather than "the server said no". */

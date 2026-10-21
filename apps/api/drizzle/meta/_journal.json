@@ -15,6 +15,13 @@
       "when": 1792557107697,
       "tag": "0001_accounting_core",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792574161310,
+      "tag": "0002_sign_in",
+      "breakpoints": true
     }
   ]
 }

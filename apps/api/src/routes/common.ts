@@ -1,17 +1,34 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
+import type { AuthUser } from '../services/auth.js';
 import { ApiError } from '../services/errors.js';
 
-/** Placeholder until the auth work lands: the acting user comes from a dev-only header. */
+declare module 'fastify' {
+  interface FastifyRequest {
+    /** Set by the auth hook in app.ts from the bearer token; null when there is none or it is bad. */
+    auth: AuthUser | null;
+  }
+}
+
 export function currentUserId(req: FastifyRequest): string | null {
-  const id = req.headers['x-dev-user-id'];
-  return typeof id === 'string' && id.length > 0 ? id : null;
+  return req.auth?.userId ?? null;
+}
+
+export function requireAuth(req: FastifyRequest): AuthUser {
+  if (!req.auth) throw new ApiError(401, 'unauthenticated', 'Sign in to continue');
+  return req.auth;
 }
 
 export function requireUserId(req: FastifyRequest): string {
-  const id = currentUserId(req);
-  if (!id) throw new ApiError(401, 'unauthenticated', 'x-dev-user-id header is required');
-  return id;
+  return requireAuth(req).userId;
+}
+
+/** The bearer token from the Authorization header, if any. */
+export function bearerToken(req: FastifyRequest): string | null {
+  const header = req.headers.authorization;
+  if (typeof header !== 'string') return null;
+  const m = /^Bearer\s+(.+)$/i.exec(header.trim());
+  return m?.[1]?.trim() || null;
 }
 
 export function parseBody<T extends z.ZodTypeAny>(schema: T, body: unknown): z.infer<T> {

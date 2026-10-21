@@ -45,6 +45,8 @@ app must be opened through the proxy host name, not through port 8080 directly.
      | `WEB_PORT` | no | Host port NPMplus forwards to, default 8080 |
      | `CORS_ORIGINS` | no | Leave empty; the web container proxies `/api` so there is no cross-origin call |
      | `LOG_LEVEL` | no | `info` by default |
+     | `SMS_PROVIDER` | no | `log` (default) writes sign-in codes to the `api` container log; `webhook` posts them to `SMS_WEBHOOK_URL` |
+     | `AUTH_DEV_CODE` | no | Six digits; makes every sign-in code this value. Test data only |
 
    - GitOps updates: on, mechanism **Webhook**, and tick **Re-pull image**.
      Copy the webhook URL Portainer shows (it ends in a UUID).

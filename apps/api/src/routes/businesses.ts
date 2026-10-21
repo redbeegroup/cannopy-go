@@ -10,7 +10,6 @@ import {
   isoInstantSchema,
   itemSchema,
   monthRange,
-  userSchema,
 } from '@cannopy/core';
 import { and, desc, eq, gte, isNull, lte } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
@@ -32,6 +31,7 @@ import {
 } from '../services/entities.js';
 import { deleteDocument, loadDocumentWithPostings, upsertDocument } from '../services/ledger.js';
 import { rowToDocument } from '../services/mappers.js';
+import { requireMember, requireOwner } from '../services/members.js';
 import {
   balanceSheetReport,
   contactBalances,
@@ -44,9 +44,9 @@ import { parseBody, parseQuery, requireUserId } from './common.js';
 
 /**
  * REST API for the owner's data. Every route lives under
- * /api/businesses/:businessId and reads the acting user from the dev header
- * until authentication lands. Bodies and replies use the @cannopy/core types,
- * so the web app can share them.
+ * /api/businesses/:businessId; the caller must be signed in (bearer token) and
+ * a member of that business, which the hook below checks once for every route.
+ * Bodies and replies use the @cannopy/core types, so the web app can share them.
  *
  * Writes go through the same services the sync push uses, so a document saved
  * here and a document pushed from a phone post identically.
@@ -54,7 +54,7 @@ import { parseBody, parseQuery, requireUserId } from './common.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-const createBusinessBody = z.object({ business: businessSchema, owner: userSchema });
+const createBusinessBody = z.object({ business: businessSchema });
 const modeBody = z.object({ mode: accountingModeSchema, at: isoInstantSchema.optional() });
 const deleteBody = z.object({ deletedAt: isoInstantSchema.optional() });
 const periodQuery = z.object({
@@ -78,14 +78,19 @@ const listDocumentsQuery = z.object({
 
 export const businessRoutes: FastifyPluginAsync<{ db: Db }> = async (app, { db }) => {
   app.post('/businesses', async (req, reply) => {
+    const ownerUserId = requireUserId(req);
     const body = parseBody(createBusinessBody, req.body);
-    if (body.owner.businessId !== body.business.id) {
-      return reply
-        .code(400)
-        .send({ error: 'invalid_request', message: 'Owner must belong to the business' });
-    }
-    const result = await db.transaction((tx) => createBusiness(tx, body));
+    const result = await db.transaction((tx) =>
+      createBusiness(tx, { business: body.business, ownerUserId }),
+    );
     return reply.code(201).send(result);
+  });
+
+  // Membership gate for everything under /businesses/:businessId.
+  app.addHook('preHandler', async (req) => {
+    const businessId = (req.params as { businessId?: string }).businessId;
+    if (!businessId) return;
+    await requireMember(db, businessId, requireUserId(req));
   });
 
   app.get<{ Params: { businessId: string } }>('/businesses/:businessId', async (req) => {
@@ -97,6 +102,7 @@ export const businessRoutes: FastifyPluginAsync<{ db: Db }> = async (app, { db }
     '/businesses/:businessId/accounting-mode',
     async (req) => {
       const userId = requireUserId(req);
+      await requireOwner(db, req.params.businessId, userId);
       const body = parseBody(modeBody, req.body);
       return db.transaction((tx) =>
         setAccountingMode(

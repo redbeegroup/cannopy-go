@@ -2,6 +2,7 @@ import {
   type Account,
   type AccountingMode,
   type Business,
+  formatPhone,
   labelFromInput,
   nextAccountCode,
 } from '@cannopy/core';
@@ -25,13 +26,14 @@ import { useToast } from '../ui/Toast';
 
 export function Settings() {
   const { t, i18n } = useTranslation();
-  const { business, user } = useSession();
-  const { reset } = useSessionState();
+  const { business, user, role } = useSession();
+  const { signOut, closeBusiness } = useSessionState();
   const navigate = useNavigate();
   const pick = useLabel();
   const status = useSyncStatus();
   const language = useLanguage();
-  const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [confirmSwitch, setConfirmSwitch] = useState(false);
 
   return (
     <Screen title={t('nav.settings')} back="/">
@@ -54,11 +56,16 @@ export function Settings() {
           />
           <Row to="/settings/accounts" title={t('settings.money_accounts')} />
           <Row to="/settings/display" title={t('settings.display')} />
+          <Row to="/settings/people" title={t('people.title')} />
           <Row
             to="/settings/sync"
             title={t('settings.sync')}
             right={
-              status.pending > 0 ? t('sync.pending', { count: status.pending }) : t('sync.saved')
+              status.needsSignIn
+                ? t('sync.sign_in_again')
+                : status.pending > 0
+                  ? t('sync.pending', { count: status.pending })
+                  : t('sync.saved')
             }
           />
         </Card>
@@ -71,29 +78,52 @@ export function Settings() {
             title={t('settings.fiscal_year')}
             right={t(`month.${business.fiscalYearStartMonth}`)}
           />
-          <Row title={t('setup.owner_name')} right={user.name} subtitle={user.phone ?? undefined} />
         </Card>
         <p className="muted small">{t('settings.business_note')}</p>
       </Section>
+      <Section title={t('settings.account')}>
+        <Card className="flush">
+          <Row
+            title={user.name || formatPhone(user.phone)}
+            subtitle={`${formatPhone(user.phone)} · ${t(`role.${role}`)}`}
+          />
+          <Row onClick={() => setConfirmSwitch(true)} title={t('settings.switch_business')} />
+        </Card>
+        <p className="muted small">{t('settings.account_hint')}</p>
+      </Section>
       <Section title={t('settings.device')}>
-        <Button kind="danger" onClick={() => setConfirmReset(true)}>
-          {t('settings.reset')}
+        <Button kind="danger" onClick={() => setConfirmSignOut(true)}>
+          {t('settings.sign_out')}
         </Button>
-        <p className="muted small">{t('settings.reset_hint')}</p>
+        <p className="muted small">{t('settings.sign_out_hint')}</p>
         <Confirm
-          open={confirmReset}
-          title={t('settings.reset')}
+          open={confirmSignOut}
+          title={t('settings.sign_out')}
           text={
             status.pending > 0
               ? t('settings.reset_pending', { count: status.pending })
-              : t('settings.reset_confirm')
+              : t('settings.sign_out_confirm')
           }
-          confirmLabel={t('settings.reset')}
+          confirmLabel={t('settings.sign_out')}
           danger
           onConfirm={() => {
-            void reset().then(() => navigate('/', { replace: true }));
+            void signOut().then(() => navigate('/sign-in', { replace: true }));
           }}
-          onClose={() => setConfirmReset(false)}
+          onClose={() => setConfirmSignOut(false)}
+        />
+        <Confirm
+          open={confirmSwitch}
+          title={t('settings.switch_business')}
+          text={
+            status.pending > 0
+              ? t('settings.reset_pending', { count: status.pending })
+              : t('settings.switch_confirm')
+          }
+          confirmLabel={t('settings.switch_business')}
+          onConfirm={() => {
+            void closeBusiness().then(() => navigate('/choose', { replace: true }));
+          }}
+          onClose={() => setConfirmSwitch(false)}
         />
       </Section>
       <p className="muted small center">Cannopy GO · {t('app.tagline')}</p>
@@ -104,7 +134,7 @@ export function Settings() {
 /** The cash/accrual switch: one business setting on the server, explained in plain words. */
 export function ModeSettings() {
   const { t } = useTranslation();
-  const { business, user } = useSession();
+  const { business, role } = useSession();
   const { updateBusiness } = useSessionState();
   const toast = useToast();
   const status = useSyncStatus();
@@ -117,7 +147,6 @@ export function ModeSettings() {
       const updated = await api<Business>(`/businesses/${business.id}/accounting-mode`, {
         method: 'PUT',
         body: { mode },
-        userId: user.id,
       });
       await updateBusiness({ accountingMode: updated.accountingMode });
       toast(t('settings.mode_changed', { mode: t(`mode.${mode}`) }));
@@ -148,6 +177,7 @@ export function ModeSettings() {
       {!status.online ? (
         <div className="banner warn">{t('settings.mode_needs_internet')}</div>
       ) : null}
+      {role !== 'owner' ? <div className="banner info">{t('settings.mode_owner_only')}</div> : null}
       <p className="muted small">{t('settings.mode_note')}</p>
     </Screen>
   );
@@ -354,7 +384,15 @@ export function SyncSettings() {
           title={t('sync.last')}
           right={status.lastSyncAt ? formatTime(status.lastSyncAt, language) : '—'}
         />
-        {status.lastError ? <Row title={t('sync.error')} subtitle={status.lastError} /> : null}
+        {status.needsSignIn ? (
+          <Row
+            to="/sign-in?again=1"
+            title={t('sync.sign_in_again')}
+            subtitle={t('sync.sign_in_again_hint')}
+          />
+        ) : status.lastError ? (
+          <Row title={t('sync.error')} subtitle={status.lastError} />
+        ) : null}
       </Card>
       <Button
         kind="secondary"
