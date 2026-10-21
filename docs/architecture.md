@@ -206,10 +206,13 @@ pnpm workspaces, strict TypeScript, Biome for lint and format, Vitest for tests.
   report shaping in `packages/core/src/accounting`, the ledger and report
   services in `apps/api/src/services`, REST routes under
   `/api/businesses/:businessId`, and `applyMutation` in the sync route.
-- **Thread 4, mobile UI and onboarding**: the web app shell, i18n files, the
-  `SyncClient` and `LocalDb`, the design tokens in `styles.css`, and the
-  five-minute setup journey from the scope doc. Zawgyi conversion on input and
-  PNG icon artwork are open items for that thread.
+- **Thread 4, mobile UI and onboarding** (done, see
+  [mobile-ui.md](./mobile-ui.md)): setup, home with the plain groups, Sell,
+  Spend, Buy, Get paid, Pay, owner money, transfers, items and stock counts,
+  customers and suppliers, history with edit and delete, reports and the
+  cash/accrual switch. Writes go through an outbox in IndexedDB and the device
+  derives money and balances from its own documents, so Sell, Spend and Get
+  paid work without signal. Zawgyi is converted at input.
 
 ## Open items that need the owner's answer
 
