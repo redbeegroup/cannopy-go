@@ -18,6 +18,7 @@ export const documentTypeSchema = z.enum([
 export type DocumentType = z.infer<typeof documentTypeSchema>;
 
 export const documentStatusSchema = z.enum(['open', 'partly_paid', 'paid', 'void']);
+export type DocumentStatus = z.infer<typeof documentStatusSchema>;
 
 export const documentLineSchema = z.object({
   id: idSchema,
@@ -50,8 +51,19 @@ export const documentSchema = syncedRowSchema.extend({
   toMoneyAccountId: idSchema.nullable().default(null),
   lines: z.array(documentLineSchema).default([]),
   allocations: z.array(allocationSchema).default([]),
+  /**
+   * Sum of line amounts and tax. For a payment, the amount the customer paid or
+   * the supplier received, before any fee. For a transfer, the amount leaving
+   * the first money account.
+   */
   total: kyatSchema,
+  /**
+   * Wallet or bank fee. On a sale or payment in it is deducted from what reaches
+   * the money account; on a payment out or transfer it is charged on top.
+   */
   feeAmount: kyatSchema.default(0),
+  /** Amount settled against this document by payments; cached by the server. */
+  paidAmount: kyatSchema.default(0),
   status: documentStatusSchema.default('open'),
   note: z.string().trim().max(1000).default(''),
   attachmentUrl: z.string().trim().max(500).nullable().default(null),

@@ -33,6 +33,21 @@ the app and the API share one origin in development too.
 Changing the schema: edit `apps/api/src/db/schema/index.ts`, run
 `pnpm db:generate`, review the SQL in `apps/api/drizzle/`, commit both.
 
+## API integration tests
+
+`apps/api` has tests that post real documents through the ledger and read the
+reports back. They need a PostgreSQL database and skip when `TEST_DATABASE_URL`
+is not set (CI provides one). Locally, point them at a scratch database on the
+compose Postgres:
+
+```bash
+docker compose up -d db
+docker compose exec db createdb -U cannopy cannopy_test
+TEST_DATABASE_URL=postgres://cannopy:cannopy-dev-only@localhost:5432/cannopy_test pnpm --filter @cannopy/api test
+```
+
+Migrations run against that database automatically before the first test.
+
 ## Running the full stack in Docker
 
 ```bash
