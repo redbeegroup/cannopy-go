@@ -203,6 +203,8 @@ export const items = pgTable(
     averageCost: bigint('average_cost', { mode: 'number' }).notNull().default(0),
     lastCost: bigint('last_cost', { mode: 'number' }),
     quantityOnHandMilli: bigint('quantity_on_hand_milli', { mode: 'number' }).notNull().default(0),
+    /** Whole kyat held in Stock on hand for this item; cached from stock movements. */
+    stockValue: bigint('stock_value', { mode: 'number' }).notNull().default(0),
     lowStockLevelMilli: bigint('low_stock_level_milli', { mode: 'number' }),
     barcode: text('barcode'),
     photoUrl: text('photo_url'),
@@ -235,6 +237,8 @@ export const documents = pgTable(
     allocations: jsonb('allocations').notNull().default([]),
     total: bigint('total', { mode: 'number' }).notNull(),
     feeAmount: bigint('fee_amount', { mode: 'number' }).notNull().default(0),
+    /** Settled by payments; derived from document_allocations on every repost. */
+    paidAmount: bigint('paid_amount', { mode: 'number' }).notNull().default(0),
     status: documentStatusEnum('status').notNull().default('open'),
     note: text('note').notNull().default(''),
     attachmentUrl: text('attachment_url'),
@@ -267,9 +271,13 @@ export const stockMovements = pgTable(
     date: date('date').notNull(),
     quantityMilli: bigint('quantity_milli', { mode: 'number' }).notNull(),
     unitCost: bigint('unit_cost', { mode: 'number' }).notNull(),
+    /** Signed whole kyat: what Stock on hand moves by. Outbound values come from the costing engine. */
+    value: bigint('value', { mode: 'number' }).notNull().default(0),
     documentId: uuid('document_id')
       .notNull()
       .references(() => documents.id),
+    /** The document line that produced this movement. */
+    lineId: uuid('line_id'),
     ...synced,
   },
   (t) => [
@@ -322,6 +330,32 @@ export const journalLines = pgTable(
   (t) => [
     primaryKey({ columns: [t.entryId, t.lineNo] }),
     index('journal_lines_business_account_idx').on(t.businessId, t.accountId),
+  ],
+);
+
+/**
+ * Derived from payment documents on every post: one row per settled document,
+ * so open balances and "who owes me" are a sum, not a JSON scan.
+ */
+export const documentAllocations = pgTable(
+  'document_allocations',
+  {
+    paymentId: uuid('payment_id')
+      .notNull()
+      .references(() => documents.id, { onDelete: 'cascade' }),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => documents.id),
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    amount: bigint('amount', { mode: 'number' }).notNull(),
+    /** Payment date, copied so ordering payments per document needs no join. */
+    date: date('date').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.paymentId, t.documentId] }),
+    index('document_allocations_document_idx').on(t.documentId),
   ],
 );
 

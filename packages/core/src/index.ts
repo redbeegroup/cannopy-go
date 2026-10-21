@@ -1,3 +1,4 @@
+export * from './accounting/index.js';
 export * from './i18n/label.js';
 export * from './ids/id.js';
 export * from './money/kyat.js';

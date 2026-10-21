@@ -47,9 +47,9 @@ export type PushResult = z.infer<typeof pushResultSchema>;
 
 export const pullRequestSchema = z.object({
   businessId: idSchema,
-  /** Last server sequence this device has applied; 0 for a fresh install. */
-  since: z.number().int().nonnegative().default(0),
-  limit: z.number().int().min(1).max(1000).default(500),
+  /** Last server sequence this device has applied; 0 for a fresh install. Coerced: it arrives as a query string. */
+  since: z.coerce.number().int().nonnegative().default(0),
+  limit: z.coerce.number().int().min(1).max(1000).default(500),
 });
 
 export const changeSchema = z.object({

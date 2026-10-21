@@ -1,17 +1,41 @@
-import { pullRequestSchema, pullResponseSchema, pushRequestSchema } from '@cannopy/core';
+import {
+  accountSchema,
+  contactSchema,
+  documentSchema,
+  itemSchema,
+  type Mutation,
+  pullRequestSchema,
+  pullResponseSchema,
+  pushRequestSchema,
+} from '@cannopy/core';
 import { and, desc, eq, gt } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import type { Db } from '../db/client.js';
 import { syncChanges, syncMutations } from '../db/schema/index.js';
+import {
+  deleteAccount,
+  deleteContact,
+  deleteItem,
+  upsertAccount,
+  upsertContact,
+  upsertItem,
+} from '../services/entities.js';
+import { ApiError } from '../services/errors.js';
+import { deleteDocument, upsertDocument } from '../services/ledger.js';
+import type { Tx } from '../services/tx.js';
+import { currentUserId } from './common.js';
 
 /**
- * Offline sync endpoints. This is the transport skeleton; thread 3 (core
- * accounting and inventory) plugs the domain logic into `applyMutation`, which
- * is where a document mutation becomes journal entries and stock movements.
+ * Offline sync endpoints. A device pushes its outbox of mutations; each one
+ * is stored by its client id (so a retried push is applied once) and applied
+ * through the same services the REST routes use. The services append every
+ * row they create or change (the document with its server-assigned number and
+ * status, journal entries, stock movements, recosted items) to the change
+ * log, which devices pull from.
  *
- * Authentication is not wired yet: `currentUser` is a placeholder that the auth
- * work replaces with the session user. Until then these routes are only
- * reachable in development.
+ * Authentication is not wired yet: the acting user comes from a dev-only
+ * header. Until the auth work lands these routes are only reachable in
+ * development.
  */
 export const syncRoutes: FastifyPluginAsync<{ db: Db | null }> = async (app, { db }) => {
   app.post('/sync/push', async (req, reply) => {
@@ -21,52 +45,41 @@ export const syncRoutes: FastifyPluginAsync<{ db: Db | null }> = async (app, { d
     }
     if (!db) return reply.code(503).send({ error: 'database_unavailable' });
     const { businessId, mutations } = parsed.data;
-    const user = currentUser(req.headers);
-    if (!user) return reply.code(401).send({ error: 'unauthenticated' });
+    const userId = currentUserId(req);
+    if (!userId) return reply.code(401).send({ error: 'unauthenticated' });
 
     const accepted: string[] = [];
     const rejected: { id: string; reason: string }[] = [];
 
-    await db.transaction(async (tx) => {
-      for (const m of mutations) {
-        const inserted = await tx
-          .insert(syncMutations)
-          .values({
-            id: m.id,
-            businessId,
-            userId: user.id,
-            deviceId: m.deviceId,
-            entity: m.entity,
-            entityId: m.entityId,
-            op: m.op,
-            data: m.data,
-            clientAt: new Date(m.clientAt),
-          })
-          .onConflictDoNothing()
-          .returning({ id: syncMutations.id });
-
-        if (inserted.length === 0) {
-          // Already applied by an earlier push: idempotent success.
-          accepted.push(m.id);
-          continue;
-        }
-
-        try {
-          await applyMutation();
-          await tx.insert(syncChanges).values({
-            businessId,
-            entity: m.entity,
-            entityId: m.entityId,
-            op: m.op,
-            data: m.data,
-            mutationId: m.id,
-          });
-          accepted.push(m.id);
-        } catch (err) {
-          rejected.push({ id: m.id, reason: err instanceof Error ? err.message : 'rejected' });
-        }
+    // Each mutation is its own transaction so one bad record does not block the rest of the outbox.
+    for (const m of mutations) {
+      try {
+        const applied = await db.transaction(async (tx) => {
+          const inserted = await tx
+            .insert(syncMutations)
+            .values({
+              id: m.id,
+              businessId,
+              userId,
+              deviceId: m.deviceId,
+              entity: m.entity,
+              entityId: m.entityId,
+              op: m.op,
+              data: m.data,
+              clientAt: new Date(m.clientAt),
+            })
+            .onConflictDoNothing()
+            .returning({ id: syncMutations.id });
+          if (inserted.length === 0) return 'duplicate';
+          await applyMutation(tx, businessId, userId, m);
+          return 'applied';
+        });
+        void applied;
+        accepted.push(m.id);
+      } catch (err) {
+        rejected.push({ id: m.id, reason: reasonOf(err) });
       }
-    });
+    }
 
     const serverSeq = await latestSeq(db, businessId);
     return { accepted, rejected, serverSeq };
@@ -102,15 +115,77 @@ export const syncRoutes: FastifyPluginAsync<{ db: Db | null }> = async (app, { d
   });
 };
 
-/** Placeholder until the auth work lands. Reads a dev-only header. */
-function currentUser(headers: Record<string, unknown>): { id: string } | null {
-  const id = headers['x-dev-user-id'];
-  return typeof id === 'string' && id.length > 0 ? { id } : null;
+/**
+ * Applies one mutation through the domain services. Devices own accounts,
+ * contacts, items and documents; journal entries and stock movements are
+ * derived on the server and cannot be pushed.
+ */
+export async function applyMutation(
+  tx: Tx,
+  businessId: string,
+  userId: string,
+  m: Mutation,
+): Promise<void> {
+  const at = m.clientAt;
+  const withIds = { ...m.data, id: m.entityId, businessId };
+  switch (m.entity) {
+    case 'document': {
+      if (m.op === 'delete') {
+        await deleteDocument(tx, {
+          businessId,
+          userId,
+          documentId: m.entityId,
+          deletedAt: at,
+          mutationId: m.id,
+        });
+        return;
+      }
+      const document = parse(documentSchema, withIds);
+      await upsertDocument(tx, { businessId, userId, document, mutationId: m.id });
+      return;
+    }
+    case 'account': {
+      if (m.op === 'delete') return deleteAccount(tx, businessId, m.entityId, at, m.id);
+      await upsertAccount(tx, businessId, parse(accountSchema, withIds), m.id);
+      return;
+    }
+    case 'contact': {
+      if (m.op === 'delete') return deleteContact(tx, businessId, m.entityId, at, m.id);
+      await upsertContact(tx, businessId, parse(contactSchema, withIds), m.id);
+      return;
+    }
+    case 'item': {
+      if (m.op === 'delete') return deleteItem(tx, businessId, m.entityId, at, m.id);
+      await upsertItem(tx, businessId, parse(itemSchema, withIds), m.id);
+      return;
+    }
+    case 'journal_entry':
+    case 'stock_movement':
+      throw new ApiError(
+        422,
+        'server_owned',
+        `${m.entity} rows are derived on the server and cannot be pushed`,
+      );
+  }
 }
 
-/** Thread 3 replaces this with posting rules, stock costing and audit logging. */
-async function applyMutation(): Promise<void> {
-  // Intentionally empty in the scaffold: the change log still records the mutation.
+function parse<T>(
+  schema: {
+    safeParse(
+      v: unknown,
+    ): { success: true; data: T } | { success: false; error: { issues: unknown } };
+  },
+  value: unknown,
+): T {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success)
+    throw new ApiError(400, 'invalid_mutation', 'Mutation data is invalid', parsed.error.issues);
+  return parsed.data;
+}
+
+function reasonOf(err: unknown): string {
+  if (err instanceof ApiError) return `${err.code}: ${err.message}`;
+  return err instanceof Error ? err.message : 'rejected';
 }
 
 async function latestSeq(db: Db, businessId: string): Promise<number> {

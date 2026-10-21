@@ -201,10 +201,11 @@ pnpm workspaces, strict TypeScript, Biome for lint and format, Vitest for tests.
 
 ## What later threads build on
 
-- **Thread 3, core accounting and inventory**: the schema in
-  `apps/api/src/db/schema`, the entity and journal schemas in `packages/core`,
-  the `applyMutation` hook in the sync route, and the invariants listed in the
-  scope doc. Posting rules belong in `packages/core` so the device can run them.
+- **Thread 3, core accounting and inventory** (done, see
+  [accounting-core.md](./accounting-core.md)): posting rules, costing and
+  report shaping in `packages/core/src/accounting`, the ledger and report
+  services in `apps/api/src/services`, REST routes under
+  `/api/businesses/:businessId`, and `applyMutation` in the sync route.
 - **Thread 4, mobile UI and onboarding**: the web app shell, i18n files, the
   `SyncClient` and `LocalDb`, the design tokens in `styles.css`, and the
   five-minute setup journey from the scope doc. Zawgyi conversion on input and
