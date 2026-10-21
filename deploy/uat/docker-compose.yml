@@ -37,6 +37,12 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-cannopy}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-cannopy}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
       AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET on the Portainer stack}
+      # Sign-in codes: `log` writes them to this container's log; `webhook` posts
+      # them to SMS_WEBHOOK_URL. AUTH_DEV_CODE fixes every code (testing only).
+      SMS_PROVIDER: ${SMS_PROVIDER:-log}
+      SMS_WEBHOOK_URL: ${SMS_WEBHOOK_URL:-}
+      SMS_WEBHOOK_TOKEN: ${SMS_WEBHOOK_TOKEN:-}
+      AUTH_DEV_CODE: ${AUTH_DEV_CODE:-}
       APP_VERSION: ${IMAGE_TAG:-latest}
 
   web:

@@ -1,6 +1,12 @@
 {
-  "app": { "name": "Cannopy GO", "tagline": "Simple books for your business" },
-  "language": { "switch": "မြန်မာ", "current": "English" },
+  "app": {
+    "name": "Cannopy GO",
+    "tagline": "Simple books for your business"
+  },
+  "language": {
+    "switch": "မြန်မာ",
+    "current": "English"
+  },
   "nav": {
     "main": "Main",
     "home": "Home",
@@ -47,8 +53,15 @@
     "money_in": "Money in",
     "money_out": "Money out"
   },
-  "mode": { "cash": "Cash basis", "accrual": "Accrual basis" },
-  "money_kind": { "cash": "Cash", "bank": "Bank", "wallet": "Mobile wallet" },
+  "mode": {
+    "cash": "Cash basis",
+    "accrual": "Accrual basis"
+  },
+  "money_kind": {
+    "cash": "Cash",
+    "bank": "Bank",
+    "wallet": "Mobile wallet"
+  },
   "business_type": {
     "shop": "Shop or stall",
     "food_and_drink": "Food and drink",
@@ -114,7 +127,9 @@
     "sync_now": "Sync now",
     "explain": "Everything you record is saved on this phone first and sent to the server when there is signal. You can keep working without internet.",
     "rejected_title": "Records the server refused",
-    "rejected_hint": "These were not accepted. Open the record, fix it and save again."
+    "rejected_hint": "These were not accepted. Open the record, fix it and save again.",
+    "sign_in_again": "Sign in again to sync",
+    "sign_in_again_hint": "The server no longer accepts this phone. Your records are safe here; sign in to send them."
   },
   "setup": {
     "pick_language": "Choose your language",
@@ -123,8 +138,6 @@
     "business_name_hint": "For example Aung Store",
     "business_type": "What kind of business?",
     "owner_name": "Your name",
-    "phone": "Phone number",
-    "phone_hint": "Optional. Used later for signing in on another phone.",
     "year_title": "When does your year start?",
     "year_hint": "This only sets which months your yearly profit report covers. You can change it later.",
     "year_april": "April to March",
@@ -143,7 +156,8 @@
     "failed": "Setup did not go through. Please try again.",
     "creating": "Setting up…",
     "start": "Start",
-    "opening_note": "Opening balance"
+    "opening_note": "Opening balance",
+    "owner_is": "You, {{name}}, will be the owner. You can invite others later under Settings, People."
   },
   "home": {
     "people_one": "{{count}} person",
@@ -324,7 +338,12 @@
     "empty_hint": "Add people you give credit to, so you always know who owes what."
   },
   "history": {
-    "filter": { "all": "All", "sales": "Sales", "spending": "Spending", "other": "Other" },
+    "filter": {
+      "all": "All",
+      "sales": "Sales",
+      "spending": "Spending",
+      "other": "Other"
+    },
     "empty": "Nothing recorded yet",
     "not_synced": "Not synced yet",
     "lines": "Details",
@@ -384,9 +403,6 @@
     "business_note": "Changing the business name and year from the app is coming later.",
     "fiscal_year": "Year starts in",
     "device": "This phone",
-    "reset": "Start over on this phone",
-    "reset_hint": "Removes the copy on this phone only. The server keeps everything that was synced.",
-    "reset_confirm": "Remove the books from this phone?",
     "reset_pending_one": "{{count}} change has not been synced and will be lost. Remove anyway?",
     "reset_pending_other": "{{count}} changes have not been synced and will be lost. Remove anyway?",
     "mode_intro": "Cash basis counts a sale when the money comes in. Accrual basis counts it on the day you sold, even if the customer pays later. Both are always kept; this only changes what the reports show.",
@@ -413,6 +429,87 @@
     "myanmar_digits": "Myanmar digits",
     "tax_enabled": "Commercial tax on sales",
     "tax_hint": "Only if you are registered. Adds a 5% tax option to each sale.",
-    "display_note": "These settings are kept on this phone."
+    "display_note": "These settings are kept on this phone.",
+    "account": "Signed in",
+    "switch_business": "Switch business",
+    "account_hint": "Open another business you belong to, or join one you were invited to.",
+    "sign_out": "Sign out of this phone",
+    "sign_out_hint": "Removes the books from this phone. The server keeps everything that was synced; sign in again to get them back.",
+    "sign_out_confirm": "Sign out and remove the books from this phone?",
+    "switch_confirm": "Close these books on this phone and pick another business?",
+    "mode_owner_only": "Only an owner can switch this. Ask the owner."
+  },
+  "role": {
+    "owner": "Owner",
+    "member": "Member"
+  },
+  "signin": {
+    "title": "Sign in with your phone",
+    "intro": "We send a code to your number. No password to remember.",
+    "again_title": "Sign in again",
+    "again_hint": "Your records are safe on this phone. Sign in with the same number to keep syncing.",
+    "phone": "Phone number",
+    "phone_hint": "The number you use for calls, for example 09 123 456 789.",
+    "bad_phone": "That does not look like a phone number.",
+    "send_code": "Send code",
+    "sending": "Sending…",
+    "code_title": "Enter the code",
+    "code_sent": "We sent a 6-digit code to {{phone}}.",
+    "code": "Code",
+    "enter_code": "Type the 6 digits from the message.",
+    "verify": "Sign in",
+    "checking": "Checking…",
+    "wrong_code": "That code is not right. Check the message and try again.",
+    "code_expired": "That code has expired. Ask for a new one.",
+    "too_many": "Too many codes for this number. Wait an hour and try again.",
+    "resend": "Send again",
+    "resend_in": "Send again in {{seconds}}s",
+    "change_phone": "Change number",
+    "dev_code": "Test mode: your code is {{code}}",
+    "name_title": "What is your name?",
+    "name_hint": "Shown to the people you work with.",
+    "need_name": "Please type your name.",
+    "need_internet": "Signing in needs internet. Try again when you have signal.",
+    "failed": "Could not sign in. Please try again."
+  },
+  "choose": {
+    "title": "Your businesses",
+    "signed_in_as": "Signed in as {{name}}",
+    "loading": "Loading…",
+    "invited": "You were invited to",
+    "invited_by": "Invited by {{name}}",
+    "join": "Join",
+    "joining": "Joining…",
+    "yours": "Open",
+    "open": "Open",
+    "opening": "Opening…",
+    "none": "No business yet. Start one, or ask the owner to invite your number.",
+    "new": "Start a new business",
+    "failed": "Could not load your businesses. Please try again."
+  },
+  "people": {
+    "title": "People",
+    "intro": "Everyone here sees the same books and can record sales, spending and payments. Only owners can invite or remove people and switch cash or accrual.",
+    "members": "Who can open this business",
+    "you": "you",
+    "since": "since {{date}}",
+    "waiting": "Invited, not joined yet",
+    "waiting_hint": "They will see the invite when they sign in with this number.",
+    "invite": "Invite",
+    "invite_intro": "Type the phone number they sign in with. They install the app, sign in with that number, and the business is waiting for them.",
+    "their_name": "Their name",
+    "their_name_hint": "Optional. Shown until they set their own.",
+    "invite_note": "Invited people see everything: money, who owes, stock and profit.",
+    "send_invite": "Invite",
+    "invited": "Invited {{phone}}",
+    "already_member": "This number already belongs to the business.",
+    "invite_removed": "Invite removed",
+    "remove_title": "Remove from this business?",
+    "remove_confirm": "{{name}} will no longer be able to open these books. Records they made stay.",
+    "member_removed": "Removed {{name}}",
+    "last_owner": "A business needs at least one owner.",
+    "member_note": "Only an owner can invite or remove people.",
+    "need_internet": "Managing people needs internet. Try again when you have signal.",
+    "failed": "Something went wrong. Please try again."
   }
 }

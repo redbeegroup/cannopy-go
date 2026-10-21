@@ -5,6 +5,7 @@ import type {
   Document,
   Item,
   JournalEntry,
+  MemberRole,
   Mutation,
   User,
 } from '@cannopy/core';
@@ -68,8 +69,12 @@ export const META_KEYS = {
   businessId: 'business.id',
   /** The Business row, kept here because it is not a synced table. */
   business: 'business.row',
-  /** The owner User row; its id is the acting user for every request. */
+  /** What the signed-in user is in this business: owner or member. */
+  role: 'business.role',
+  /** The signed-in User row; its id goes on every document this device creates. */
   user: 'user.row',
+  /** The device session token, sent as a bearer token when syncing. */
+  token: 'auth.token',
 } as const;
 
 export async function getMeta<T>(db: LocalDb, key: string): Promise<T | undefined> {
@@ -81,28 +86,85 @@ export async function setMeta(db: LocalDb, key: string, value: unknown): Promise
   await db.meta.put({ key, value });
 }
 
-export interface Session {
-  business: Business;
+/** A signed-in user on this device, before or without a business being open. */
+export interface Auth {
+  token: string;
   user: User;
 }
 
-export async function loadSession(db: LocalDb): Promise<Session | null> {
-  const [business, user] = await Promise.all([
-    getMeta<Business>(db, META_KEYS.business),
+/** A business open on this device: the signed-in user plus the books they chose. */
+export interface Session extends Auth {
+  business: Business;
+  role: MemberRole;
+}
+
+export async function loadAuth(db: LocalDb): Promise<Auth | null> {
+  const [token, user] = await Promise.all([
+    getMeta<string>(db, META_KEYS.token),
     getMeta<User>(db, META_KEYS.user),
   ]);
-  return business && user ? { business, user } : null;
+  return token && user ? { token, user } : null;
+}
+
+export async function saveAuth(db: LocalDb, auth: Auth): Promise<void> {
+  await db.transaction('rw', db.meta, async () => {
+    await setMeta(db, META_KEYS.token, auth.token);
+    await setMeta(db, META_KEYS.user, auth.user);
+  });
+}
+
+export async function loadSession(db: LocalDb): Promise<Session | null> {
+  const [auth, business, role] = await Promise.all([
+    loadAuth(db),
+    getMeta<Business>(db, META_KEYS.business),
+    getMeta<MemberRole>(db, META_KEYS.role),
+  ]);
+  return auth && business ? { ...auth, business, role: role ?? 'owner' } : null;
 }
 
 export async function saveSession(db: LocalDb, session: Session): Promise<void> {
   await db.transaction('rw', db.meta, async () => {
-    await setMeta(db, META_KEYS.business, session.business);
+    await setMeta(db, META_KEYS.token, session.token);
     await setMeta(db, META_KEYS.user, session.user);
+    await setMeta(db, META_KEYS.business, session.business);
+    await setMeta(db, META_KEYS.role, session.role);
     await setMeta(db, META_KEYS.businessId, session.business.id);
   });
 }
 
-/** Wipes the working copy. Used by "Start over on this device" in settings. */
+/**
+ * Drops the books on this device (rows, outbox, sync cursor) but keeps the
+ * device id and the sign-in, for switching to another business.
+ */
+export async function clearBooks(db: LocalDb): Promise<void> {
+  await db.transaction(
+    'rw',
+    [db.accounts, db.contacts, db.items, db.documents, db.journalEntries, db.outbox, db.meta],
+    async () => {
+      await Promise.all([
+        db.accounts.clear(),
+        db.contacts.clear(),
+        db.items.clear(),
+        db.documents.clear(),
+        db.journalEntries.clear(),
+        db.outbox.clear(),
+      ]);
+      await db.meta
+        .where('key')
+        .anyOf([
+          META_KEYS.business,
+          META_KEYS.businessId,
+          META_KEYS.role,
+          META_KEYS.serverSeq,
+          META_KEYS.lastSyncAt,
+          'sync.rejected',
+        ])
+        .delete();
+    },
+  );
+}
+
+/** Wipes the working copy. Used by "Sign out" in settings. */
 export async function clearDevice(db: LocalDb): Promise<void> {
   await db.delete();
   await db.open();

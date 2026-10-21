@@ -2,12 +2,14 @@ import { useTranslation } from 'react-i18next';
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router';
 import { SessionProvider, useSessionState } from './data/session';
 import { Buy } from './screens/Buy';
+import { ChooseBusiness } from './screens/ChooseBusiness';
 import { ContactDetail, ContactEdit, Contacts } from './screens/Contacts';
 import { DocumentDetail, History } from './screens/History';
 import { Home } from './screens/Home';
 import { ItemEdit, Items } from './screens/Items';
 import { Owner, Transfer } from './screens/OwnerTransfer';
 import { Payment } from './screens/Payment';
+import { InvitePerson, People } from './screens/People';
 import {
   ContactsReport,
   MoneyReport,
@@ -26,6 +28,7 @@ import {
   SyncSettings,
 } from './screens/Settings';
 import { Setup } from './screens/Setup';
+import { SignIn } from './screens/SignIn';
 import { Spend } from './screens/Spend';
 import { BottomNav } from './ui/BottomNav';
 import { ToastProvider } from './ui/Toast';
@@ -36,7 +39,13 @@ export function App() {
       <ToastProvider>
         <BrowserRouter>
           <Routes>
-            <Route path="/setup" element={<SetupGate />} />
+            <Route path="/sign-in" element={<SignIn />} />
+            <Route path="/choose" element={<AuthGate />}>
+              <Route index element={<ChooseBusiness />} />
+            </Route>
+            <Route path="/setup" element={<AuthGate />}>
+              <Route index element={<Setup />} />
+            </Route>
             <Route element={<Shell />}>
               <Route path="/" element={<Home />} />
               <Route path="/history" element={<History />} />
@@ -69,6 +78,8 @@ export function App() {
               <Route path="/settings/accounts/:id" element={<MoneyAccountEdit />} />
               <Route path="/settings/display" element={<DisplaySettings />} />
               <Route path="/settings/sync" element={<SyncSettings />} />
+              <Route path="/settings/people" element={<People />} />
+              <Route path="/settings/people/invite" element={<InvitePerson />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>
@@ -78,19 +89,22 @@ export function App() {
   );
 }
 
-/** Onboarding when no business is set up on this device, otherwise home. */
-function SetupGate() {
-  const { session, loading } = useSessionState();
+/** Choosing or creating a business needs a signed-in user. */
+function AuthGate() {
+  const { auth, loading } = useSessionState();
   if (loading) return <Splash />;
-  if (session) return <Navigate to="/" replace />;
-  return <Setup />;
+  if (!auth) return <Navigate to="/sign-in" replace />;
+  return <Outlet />;
 }
 
-/** Everything inside the app needs a session; without one the owner lands in setup. */
+/**
+ * Everything inside the app needs an open business. Without one, a signed-in
+ * user picks or creates a business; anyone else signs in first.
+ */
 function Shell({ nav = true }: { nav?: boolean }) {
-  const { session, loading } = useSessionState();
+  const { auth, session, loading } = useSessionState();
   if (loading) return <Splash />;
-  if (!session) return <Navigate to="/setup" replace />;
+  if (!session) return <Navigate to={auth ? '/choose' : '/sign-in'} replace />;
   return (
     <div className={`app ${nav ? 'with-nav' : ''}`}>
       <Outlet />

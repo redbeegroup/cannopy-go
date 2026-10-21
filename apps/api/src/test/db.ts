@@ -15,9 +15,19 @@ export async function testDb(): Promise<ReturnType<typeof createDb>> {
   if (!hasTestDb) throw new Error('TEST_DATABASE_URL is not set');
   if (!shared) shared = createDb(TEST_DATABASE_URL as string);
   if (!migrated) {
-    migrated = migrate(shared.db, {
-      migrationsFolder: new URL('../../drizzle', import.meta.url).pathname,
-    });
+    // Test files run in separate workers; an advisory lock keeps two of them
+    // from creating the migrations schema at the same moment.
+    const { db, pool } = shared;
+    migrated = (async () => {
+      const client = await pool.connect();
+      try {
+        await client.query('select pg_advisory_lock(7_4_2026)');
+        await migrate(db, { migrationsFolder: new URL('../../drizzle', import.meta.url).pathname });
+      } finally {
+        await client.query('select pg_advisory_unlock(7_4_2026)');
+        client.release();
+      }
+    })();
   }
   await migrated;
   return shared;
