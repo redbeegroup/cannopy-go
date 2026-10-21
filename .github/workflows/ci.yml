@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/cannopy-go
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm --filter @cannopy/core build
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - name: Validate compose files
+        run: |
+          docker compose -f docker-compose.yml config -q
+          POSTGRES_PASSWORD=x AUTH_SECRET=xxxxxxxxxxxxxxxx docker compose -f deploy/uat/docker-compose.yml config -q
+
+  images:
+    name: Build ${{ matrix.service }} image
+    needs: check
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [api, web]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to the registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-${{ matrix.service }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=tag
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Build (and push on main or tag)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.service }}/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  deploy-uat:
+    name: Deploy to UAT (Portainer)
+    needs: images
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: uat
+    steps:
+      - name: Trigger the Portainer stack webhook
+        env:
+          WEBHOOK: ${{ secrets.PORTAINER_WEBHOOK_URL }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "PORTAINER_WEBHOOK_URL is not set; skipping deploy. See deploy/uat/README.md." >&2
+            exit 0
+          fi
+          curl --fail --silent --show-error --retry 3 --retry-delay 5 -X POST "$WEBHOOK"
+          echo "Portainer redeploy requested."
+      # Alternative using the Portainer API (pins the image tag per deploy).
+      # Set PORTAINER_URL, PORTAINER_API_KEY, PORTAINER_ENDPOINT_ID, PORTAINER_STACK_ID
+      # as secrets, then replace the step above with:
+      #
+      # - name: Redeploy the stack through the Portainer API
+      #   env:
+      #     PORTAINER_URL: ${{ secrets.PORTAINER_URL }}
+      #     PORTAINER_API_KEY: ${{ secrets.PORTAINER_API_KEY }}
+      #     PORTAINER_ENDPOINT_ID: ${{ secrets.PORTAINER_ENDPOINT_ID }}
+      #     PORTAINER_STACK_ID: ${{ secrets.PORTAINER_STACK_ID }}
+      #   run: |
+      #     curl --fail --silent --show-error -X PUT \
+      #       -H "X-API-Key: $PORTAINER_API_KEY" -H "Content-Type: application/json" \
+      #       "$PORTAINER_URL/api/stacks/$PORTAINER_STACK_ID/git/redeploy?endpointId=$PORTAINER_ENDPOINT_ID" \
+      #       -d '{"pullImage": true, "prune": false, "env": [{"name": "IMAGE_TAG", "value": "${{ github.sha }}"}]}'

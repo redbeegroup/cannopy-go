@@ -1,0 +1,51 @@
+# UAT stack for Portainer. Images come from the registry that GitHub Actions
+# pushes to; nothing is built on the UAT host.
+#
+# Deploy in Portainer as a stack from this git repository (compose path
+# deploy/uat/docker-compose.yml) and set the environment variables listed in
+# deploy/uat/README.md on the stack. The GitHub Actions workflow calls the
+# stack's webhook after every image push so Portainer re-pulls and redeploys.
+
+name: cannopy-uat
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cannopy}
+      POSTGRES_USER: ${POSTGRES_USER:-cannopy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD on the Portainer stack}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  api:
+    image: ${IMAGE_REGISTRY:-ghcr.io/redbeegroup}/cannopy-go-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_PORT: 3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgres://${POSTGRES_USER:-cannopy}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-cannopy}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET on the Portainer stack}
+      APP_VERSION: ${IMAGE_TAG:-latest}
+
+  web:
+    image: ${IMAGE_REGISTRY:-ghcr.io/redbeegroup}/cannopy-go-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '${WEB_PORT:-8080}:80'
+
+volumes:
+  db-data:
