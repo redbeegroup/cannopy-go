@@ -69,7 +69,7 @@ derived row change is appended to the sync change log.
 ## REST API
 
 All routes are under `/api/businesses/:businessId`, read the acting user from
-the `x-dev-user-id` header until auth lands, and use the `@cannopy/core`
+the bearer session token (see sign-in.md), and use the `@cannopy/core`
 types for bodies and replies. Ids are UUID v7 made by the client. `PUT` is an
 upsert: send the whole row.
 

@@ -22,6 +22,7 @@ import {
 } from '../services/entities.js';
 import { ApiError } from '../services/errors.js';
 import { deleteDocument, upsertDocument } from '../services/ledger.js';
+import { membershipOf } from '../services/members.js';
 import type { Tx } from '../services/tx.js';
 import { currentUserId } from './common.js';
 
@@ -33,9 +34,8 @@ import { currentUserId } from './common.js';
  * status, journal entries, stock movements, recosted items) to the change
  * log, which devices pull from.
  *
- * Authentication is not wired yet: the acting user comes from a dev-only
- * header. Until the auth work lands these routes are only reachable in
- * development.
+ * The device sends its session token as a bearer token; the user must be a
+ * member of the business it pushes to or pulls from.
  */
 export const syncRoutes: FastifyPluginAsync<{ db: Db | null }> = async (app, { db }) => {
   app.post('/sync/push', async (req, reply) => {
@@ -47,6 +47,9 @@ export const syncRoutes: FastifyPluginAsync<{ db: Db | null }> = async (app, { d
     const { businessId, mutations } = parsed.data;
     const userId = currentUserId(req);
     if (!userId) return reply.code(401).send({ error: 'unauthenticated' });
+    if (!(await membershipOf(db, businessId, userId))) {
+      return reply.code(403).send({ error: 'not_a_member' });
+    }
 
     const accepted: string[] = [];
     const rejected: { id: string; reason: string }[] = [];
@@ -92,6 +95,11 @@ export const syncRoutes: FastifyPluginAsync<{ db: Db | null }> = async (app, { d
     }
     if (!db) return reply.code(503).send({ error: 'database_unavailable' });
     const { businessId, since, limit } = parsed.data;
+    const userId = currentUserId(req);
+    if (!userId) return reply.code(401).send({ error: 'unauthenticated' });
+    if (!(await membershipOf(db, businessId, userId))) {
+      return reply.code(403).send({ error: 'not_a_member' });
+    }
 
     const rows = await db
       .select({

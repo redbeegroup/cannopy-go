@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import {
   type Account,
   type Contact,
@@ -10,23 +11,58 @@ import {
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
 import { expect } from 'vitest';
 
-/** Drives the API through app.inject the way the web app will. */
+/** A fresh, valid Myanmar number per client so tests never share a user, across worker processes too. */
+export function testPhone(): string {
+  return `+9597${String(randomInt(0, 10_000_000)).padStart(7, '0')}`;
+}
+
+/** Drives the API through app.inject the way the web app does: sign in, then bearer token. */
 export class ApiClient {
-  readonly userId = newId();
+  userId = '';
+  token = '';
+  readonly phone: string;
   readonly businessId = newId();
   accounts: Account[] = [];
 
-  constructor(private readonly app: FastifyInstance) {}
+  constructor(
+    private readonly app: FastifyInstance,
+    phone?: string,
+  ) {
+    this.phone = phone ?? testPhone();
+  }
+
+  /** Requests a code, reads it back (test environments reveal it) and verifies it. */
+  async signIn(deviceId = 'test-device') {
+    const res = await this.app.inject({
+      method: 'POST',
+      url: '/api/auth/request-code',
+      payload: { phone: this.phone, language: 'my' },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const { devCode } = res.json() as { devCode?: string };
+    if (!devCode) throw new Error('Test environment did not reveal the sign-in code');
+    const verify = await this.app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-code',
+      payload: { phone: this.phone, code: devCode, deviceId },
+    });
+    expect(verify.statusCode, verify.body).toBe(200);
+    const body = verify.json() as { token: string; user: { id: string }; isNewUser: boolean };
+    this.token = body.token;
+    this.userId = body.user.id;
+    return body;
+  }
 
   async request(
     method: 'GET' | 'PUT' | 'POST' | 'DELETE',
     url: string,
     payload?: unknown,
   ): Promise<LightMyRequestResponse> {
+    if (!this.token) await this.signIn();
     const opts: InjectOptions = {
       method,
       url: `/api${url}`,
-      headers: { 'x-dev-user-id': this.userId },
+      headers: { authorization: `Bearer ${this.token}` },
     };
     if (payload !== undefined) {
       opts.headers = { ...opts.headers, 'content-type': 'application/json' };
@@ -47,6 +83,8 @@ export class ApiClient {
 
   async createBusiness(mode: 'cash' | 'accrual' = 'cash') {
     const now = '2026-04-01T00:00:00Z';
+    if (!this.token) await this.signIn();
+    await this.ok('PUT', '/me', { name: 'Owner' });
     const body = await this.ok<{ accounts: Account[] }>('POST', '/businesses', {
       business: {
         id: this.businessId,
@@ -54,14 +92,6 @@ export class ApiClient {
         type: 'shop',
         primaryLanguage: 'my',
         accountingMode: mode,
-        createdAt: now,
-        updatedAt: now,
-      },
-      owner: {
-        id: this.userId,
-        businessId: this.businessId,
-        name: 'Owner',
-        language: 'my',
         createdAt: now,
         updatedAt: now,
       },

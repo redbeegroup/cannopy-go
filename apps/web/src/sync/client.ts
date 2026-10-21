@@ -21,9 +21,9 @@ export class SyncClient {
   constructor(
     private readonly db: LocalDb,
     private readonly apiBaseUrl: string = import.meta.env.VITE_API_BASE_URL ?? '/api',
-    /** The acting user, sent in the dev header until authentication lands. */
-    private readonly userId: () => Promise<string | null> = async () =>
-      (await getMeta<{ id: string }>(db, META_KEYS.user))?.id ?? null,
+    /** The device's session token, sent as a bearer token. */
+    private readonly token: () => Promise<string | null> = async () =>
+      (await getMeta<string>(db, META_KEYS.token)) ?? null,
   ) {}
 
   async deviceId(): Promise<string> {
@@ -52,9 +52,15 @@ export class SyncClient {
 
   private async headers(): Promise<Record<string, string>> {
     const headers: Record<string, string> = { 'content-type': 'application/json' };
-    const userId = await this.userId();
-    if (userId) headers['x-dev-user-id'] = userId;
+    const token = await this.token();
+    if (token) headers.authorization = `Bearer ${token}`;
     return headers;
+  }
+
+  /** Turns a refused push or pull into an error the manager can tell apart. */
+  private refused(what: 'push' | 'pull', res: Response): Error {
+    if (res.status === 401 || res.status === 403) return new SyncAuthError(what, res.status);
+    return new Error(`${what} failed: ${res.status}`);
   }
 
   async push(businessId: string, batchSize = 200): Promise<PushResult | null> {
@@ -70,7 +76,7 @@ export class SyncClient {
       body: JSON.stringify({ businessId, mutations }),
       credentials: 'include',
     });
-    if (!res.ok) throw new Error(`push failed: ${res.status}`);
+    if (!res.ok) throw this.refused('push', res);
     const result = pushResultSchema.parse(await res.json());
 
     // Accepted and rejected mutations both leave the queue: a rejected one
@@ -102,7 +108,7 @@ export class SyncClient {
     url.searchParams.set('businessId', businessId);
     url.searchParams.set('since', String(since));
     const res = await fetch(url, { credentials: 'include', headers: await this.headers() });
-    if (!res.ok) throw new Error(`pull failed: ${res.status}`);
+    if (!res.ok) throw this.refused('pull', res);
     const page = pullResponseSchema.parse(await res.json());
     await this.applyChanges(page);
     return page;
@@ -175,6 +181,21 @@ export class SyncClient {
         // so the device does not keep them.
         return null;
     }
+  }
+}
+
+/**
+ * The server no longer accepts this device: the session was signed out
+ * elsewhere, expired, or the user was removed from the business. The device
+ * keeps its data and asks the owner to sign in again.
+ */
+export class SyncAuthError extends Error {
+  constructor(
+    readonly what: 'push' | 'pull',
+    readonly status: number,
+  ) {
+    super(status === 403 ? 'not_a_member' : 'unauthenticated');
+    this.name = 'SyncAuthError';
   }
 }
 

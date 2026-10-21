@@ -8,7 +8,10 @@ export function SyncChip() {
   const s = useSyncStatus();
   let text: string;
   let tone = 'ok';
-  if (!s.online || s.phase === 'offline') {
+  if (s.needsSignIn) {
+    text = t('sync.sign_in_again');
+    tone = 'warn';
+  } else if (!s.online || s.phase === 'offline') {
     text = s.pending > 0 ? t('sync.offline_pending', { count: s.pending }) : t('sync.offline');
     tone = 'warn';
   } else if (s.phase === 'syncing') {
@@ -23,7 +26,10 @@ export function SyncChip() {
     text = t('sync.saved');
   }
   return (
-    <Link to="/settings/sync" className={`sync-chip ${tone}`}>
+    <Link
+      to={s.needsSignIn ? '/sign-in?again=1' : '/settings/sync'}
+      className={`sync-chip ${tone}`}
+    >
       <span className="dot" />
       {text}
     </Link>

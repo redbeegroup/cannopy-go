@@ -4,32 +4,33 @@ import {
   type Business,
   newId,
   standardChart,
-  type User,
 } from '@cannopy/core';
 import { eq } from 'drizzle-orm';
-import { accounts, auditLog, businesses, users } from '../db/schema/index.js';
+import { accounts, auditLog, businesses } from '../db/schema/index.js';
 import { businessRowToCore, loadBusiness } from './books.js';
 import { recordChange } from './changes.js';
 import { accountToRow, rowToAccount } from './mappers.js';
+import { addMembership } from './members.js';
 import type { Tx } from './tx.js';
 
 export interface CreateBusinessInput {
   business: Business;
-  owner: User;
+  /** The signed-in user, who becomes the owner. */
+  ownerUserId: string;
 }
 
 export interface CreateBusinessResult {
   business: Business;
-  owner: User;
+  role: 'owner';
   accounts: Account[];
 }
 
-/** Creates the business, its owner and the standard chart of accounts in one transaction. */
+/** Creates the business, makes the caller its owner and seeds the standard chart, in one transaction. */
 export async function createBusiness(
   tx: Tx,
   input: CreateBusinessInput,
 ): Promise<CreateBusinessResult> {
-  const { business, owner } = input;
+  const { business, ownerUserId } = input;
   await tx.insert(businesses).values({
     id: business.id,
     nameEn: business.name.en,
@@ -46,22 +47,12 @@ export async function createBusiness(
     createdAt: new Date(business.createdAt),
     updatedAt: new Date(business.updatedAt),
   });
-  await tx.insert(users).values({
-    id: owner.id,
-    businessId: business.id,
-    name: owner.name,
-    phone: owner.phone,
-    email: owner.email,
-    role: owner.role,
-    language: owner.language,
-    createdAt: new Date(owner.createdAt),
-    updatedAt: new Date(owner.updatedAt),
-  });
+  await addMembership(tx, business.id, ownerUserId, 'owner', null, new Date(business.createdAt));
   const chart = standardChart(business.id, business.createdAt);
   const rows = await tx.insert(accounts).values(chart.map(accountToRow)).returning();
   const saved = rows.map(rowToAccount);
   for (const a of saved) await recordChange(tx, business.id, 'account', a.id, 'upsert', { ...a });
-  return { business, owner, accounts: saved };
+  return { business, role: 'owner', accounts: saved };
 }
 
 /** The mode switch only changes which journal reports read; it is logged with the date and user. */

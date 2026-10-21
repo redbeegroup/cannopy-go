@@ -37,7 +37,8 @@ export const businessTypeEnum = pgEnum('business_type', [
   'online_seller',
   'other',
 ]);
-export const userRoleEnum = pgEnum('user_role', ['owner', 'cashier']);
+export const memberRoleEnum = pgEnum('member_role', ['owner', 'member']);
+export const inviteStatusEnum = pgEnum('invite_status', ['pending', 'accepted', 'revoked']);
 export const accountTypeEnum = pgEnum('account_type', [
   'asset',
   'liability',
@@ -120,26 +121,111 @@ export const businesses = pgTable('businesses', {
   ...timestamps,
 });
 
+/**
+ * A person who signs in. The phone number is the identity (E.164). Which
+ * businesses they can open is in memberships, so one owner can run two shops
+ * and one shop can have two people.
+ */
 export const users = pgTable(
   'users',
+  {
+    id: uuid('id').primaryKey(),
+    phone: text('phone').notNull(),
+    name: text('name').notNull().default(''),
+    email: text('email'),
+    language: languageEnum('language').notNull().default('my'),
+    lastSignInAt: timestamp('last_sign_in_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('users_phone_unique').on(t.phone),
+    uniqueIndex('users_email_unique').on(t.email).where(sql`email is not null`),
+  ],
+);
+
+export const memberships = pgTable(
+  'memberships',
+  {
+    businessId: uuid('business_id')
+      .notNull()
+      .references(() => businesses.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    role: memberRoleEnum('role').notNull().default('member'),
+    invitedByUserId: uuid('invited_by_user_id').references(() => users.id),
+    joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.businessId, t.userId] }),
+    index('memberships_user_idx').on(t.userId),
+  ],
+);
+
+/** One-time sign-in codes. Only an HMAC of the code is stored. */
+export const authCodes = pgTable(
+  'auth_codes',
+  {
+    id: uuid('id').primaryKey(),
+    phone: text('phone').notNull(),
+    codeHash: text('code_hash').notNull(),
+    attempts: smallint('attempts').notNull().default(0),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('auth_codes_phone_idx').on(t.phone, t.createdAt)],
+);
+
+/**
+ * Device sessions. The token itself is only ever on the device; the row keeps
+ * an HMAC of it so a database leak does not hand out sessions. Long-lived,
+ * because the app must open and record offline; revoking the row signs the
+ * device out at its next sync.
+ */
+export const sessions = pgTable(
+  'sessions',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    tokenHash: text('token_hash').notNull(),
+    deviceId: text('device_id').notNull(),
+    deviceName: text('device_name').notNull().default(''),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('sessions_token_hash_unique').on(t.tokenHash),
+    index('sessions_user_idx').on(t.userId),
+  ],
+);
+
+/** An invitation to join a business, addressed to a phone number. */
+export const invites = pgTable(
+  'invites',
   {
     id: uuid('id').primaryKey(),
     businessId: uuid('business_id')
       .notNull()
       .references(() => businesses.id),
-    name: text('name').notNull(),
-    phone: text('phone'),
-    email: text('email'),
-    role: userRoleEnum('role').notNull().default('owner'),
-    language: languageEnum('language').notNull().default('my'),
-    /** Argon2 or bcrypt hash; null until the auth thread sets the login method. */
-    passwordHash: text('password_hash'),
-    ...timestamps,
+    phone: text('phone').notNull(),
+    name: text('name').notNull().default(''),
+    role: memberRoleEnum('role').notNull().default('member'),
+    invitedByUserId: uuid('invited_by_user_id')
+      .notNull()
+      .references(() => users.id),
+    status: inviteStatusEnum('status').notNull().default('pending'),
+    acceptedByUserId: uuid('accepted_by_user_id').references(() => users.id),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index('users_business_idx').on(t.businessId),
-    uniqueIndex('users_email_unique').on(t.email).where(sql`email is not null`),
-    uniqueIndex('users_phone_unique').on(t.phone).where(sql`phone is not null`),
+    index('invites_business_idx').on(t.businessId, t.status),
+    index('invites_phone_idx').on(t.phone, t.status),
   ],
 );
 
@@ -420,7 +506,7 @@ export const auditLog = pgTable(
 );
 
 export const businessesRelations = relations(businesses, ({ many }) => ({
-  users: many(users),
+  memberships: many(memberships),
   accounts: many(accounts),
   contacts: many(contacts),
   items: many(items),

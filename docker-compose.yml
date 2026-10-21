@@ -39,6 +39,10 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-cannopy}:${POSTGRES_PASSWORD:-cannopy-dev-only}@db:5432/${POSTGRES_DB:-cannopy}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
       AUTH_SECRET: ${AUTH_SECRET:-change-me-dev-only}
+      SMS_PROVIDER: ${SMS_PROVIDER:-log}
+      SMS_WEBHOOK_URL: ${SMS_WEBHOOK_URL:-}
+      SMS_WEBHOOK_TOKEN: ${SMS_WEBHOOK_TOKEN:-}
+      AUTH_DEV_CODE: ${AUTH_DEV_CODE:-}
     expose:
       - '3000'
 

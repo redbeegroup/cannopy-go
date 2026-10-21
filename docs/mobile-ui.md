@@ -15,7 +15,9 @@ speaker's pass before release.
 
 | Screen | Route | What it does |
 | --- | --- | --- |
-| Setup | `/setup` | Language, business name and type, owner name and phone, fiscal year (April default), opening cash, bank and wallet. Four taps of Next. Needs the server once, to create the business and its chart of accounts; everything after works offline |
+| Sign in | `/sign-in` | Language, phone number, the six-digit code from the message, and a name the first time. Also "sign in again" when the server stops accepting the phone's token; the books stay on the phone |
+| Choose | `/choose` | The businesses this number belongs to, invites waiting for it (Join), or Start a new business |
+| Setup | `/setup` | Business name and type, fiscal year (April default), opening cash, bank and wallet. Three taps of Next. Needs the server once, to create the business and its chart of accounts and make the signed-in person its owner; everything after works offline |
 | Home | `/` | Sell, Spend, Get paid as big buttons; Buy stock, Pay supplier, Owner money, Move money as chips; the plain groups My money (per account), Owed to me, I owe, Stock, Owner, Money in and out this month with profit; recent records; sync state |
 | Sell | `/sell`, `/sell/:id` | Items (quantity, price each) or a typed amount; paid from a money account or on credit with a customer; wallet fee; optional 5% tax when enabled |
 | Spend | `/spend`, `/spend/:id` | Amount with 500/1,000/5,000/10,000 presets, plain category, paid from or "not paid yet" with a supplier |
@@ -26,7 +28,7 @@ speaker's pass before release.
 | People | `/contacts`, `/contacts/:id` | Customers and suppliers tabs with balances; detail with Get paid / Pay buttons, open documents with age, SMS reminder, history; opening balance on creation |
 | History | `/history`, `/documents/:id` | Day book by date with filters; detail with lines, split, "paid by"; Edit reopens the right form; Delete reverses the postings |
 | Reports | `/reports/...` | Money today, Who owes me, Who I owe, Am I making money (month, last month, fiscal year), My stock, What my business is worth. Each names the basis and links to the switch |
-| Settings | `/settings/...` | Language, cash/accrual switch, money accounts (add wallets with provider and usual fee), number grouping and Myanmar digits, tax on sales, sync status with the server's rejections, start over on this phone |
+| Settings | `/settings/...` | Language, cash/accrual switch (owners only), money accounts (add wallets with provider and usual fee), number grouping and Myanmar digits, People (invite by phone, remove), sync status with the server's rejections, switch business, sign out of this phone |
 
 ## How it works on the device
 
@@ -54,8 +56,11 @@ speaker's pass before release.
   Google's myanmar-tools transliteration rules vendored into the app. The npm
   package does not ship a browser build, so detection is structural rather
   than the upstream Markov model; it never touches valid Unicode.
-- **Acting user.** Until authentication lands, the owner id created at setup
-  is sent as `x-dev-user-id` on every request, matching the API's placeholder.
+- **Acting user.** The device session token from sign-in is sent as a bearer
+  token on every request and every sync (see [sign-in.md](./sign-in.md)). The
+  signed-in user's id goes on each document the device creates. When the
+  server refuses the token (signed out elsewhere, removed from the business),
+  sync pauses, the home screen says "Sign in again", and nothing is lost.
 
 ## Decisions made here that the scope doc did not settle
 
@@ -85,9 +90,10 @@ Flagged for the owner; each has a default that can be changed.
    the item's current average cost; a negative one is costed by the server.
 8. **Sales-by-item, day book export and receipt images** from the reports
    table are not in this pass. The data for them is on the device.
-9. **Second device or reinstall.** There is no sign-in yet, so a second phone
-   cannot join an existing business. This waits for the auth work (architecture
-   decision 8).
+9. **Second device or reinstall.** Sign in with the same phone number on the
+   other device and open the business from the list; the books are pulled
+   from the server. Another person joins when an owner invites their number
+   (Settings, People). See [sign-in.md](./sign-in.md).
 
 ## Checking it by hand
 

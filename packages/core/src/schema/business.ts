@@ -34,15 +34,19 @@ export const businessSchema = z.object({
 });
 export type Business = z.infer<typeof businessSchema>;
 
-export const userRoleSchema = z.enum(['owner', 'cashier']);
-
+/**
+ * A person who signs in. The phone number is the identity; which businesses
+ * they can open, and as what, is a membership (see ./auth.ts). A name may be
+ * empty until the person sets it on first sign-in.
+ */
 export const userSchema = z.object({
   id: idSchema,
-  businessId: idSchema,
-  name: z.string().trim().min(1).max(120),
-  phone: z.string().trim().max(32).nullable().default(null),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^\+[1-9]\d{6,14}$/, 'Expected an international phone number'),
+  name: z.string().trim().max(120).default(''),
   email: z.string().trim().email().nullable().default(null),
-  role: userRoleSchema.default('owner'),
   language: languageSchema,
   createdAt: isoInstantSchema,
   updatedAt: isoInstantSchema,

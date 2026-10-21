@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { getMeta, type LocalDb, localDb, META_KEYS } from '../db/local';
-import { SyncClient } from './client';
+import { SyncAuthError, SyncClient } from './client';
 
 /**
  * Runs sync in the background and tells the UI how it is going. One instance
@@ -18,6 +18,12 @@ export interface SyncStatus {
   lastError: string | null;
   /** Rejections from the last push, so the owner can see a record the server refused. */
   rejected: number;
+  /**
+   * The server refused this device's token (signed out elsewhere, expired, or
+   * removed from the business). Sync pauses until the owner signs in again;
+   * recording keeps working on the device.
+   */
+  needsSignIn: boolean;
 }
 
 type Listener = () => void;
@@ -31,6 +37,7 @@ export class SyncManager {
     lastSyncAt: null,
     lastError: null,
     rejected: 0,
+    needsSignIn: false,
   };
   private listeners = new Set<Listener>();
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -44,8 +51,9 @@ export class SyncManager {
 
   /** Call once, after the session is known. Safe to call again with the same id. */
   start(businessId: string): void {
-    if (this.businessId === businessId && this.interval) return;
+    if (this.businessId === businessId && this.interval && !this.status.needsSignIn) return;
     this.businessId = businessId;
+    this.set({ needsSignIn: false, lastError: null });
     void this.refreshCounts();
     if (typeof window !== 'undefined') {
       window.addEventListener('online', this.onOnline);
@@ -83,6 +91,7 @@ export class SyncManager {
       this.set({ phase: 'offline' });
       return;
     }
+    if (this.status.needsSignIn) return;
     this.set({ phase: 'syncing', lastError: null });
     this.running = (async () => {
       try {
@@ -94,7 +103,11 @@ export class SyncManager {
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        this.set({ phase: this.status.online ? 'error' : 'offline', lastError: message });
+        this.set({
+          phase: this.status.online ? 'error' : 'offline',
+          lastError: message,
+          needsSignIn: err instanceof SyncAuthError,
+        });
       } finally {
         await this.refreshCounts();
         this.running = null;
