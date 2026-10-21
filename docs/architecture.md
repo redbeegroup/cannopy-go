@@ -177,11 +177,10 @@ the click-by-click Portainer setup.
 
 - Secrets live only in GitHub repository settings and on the Portainer stack.
   GitHub needs `PORTAINER_WEBHOOK_URL` (or the four `PORTAINER_*` API secrets).
-  Portainer needs `POSTGRES_PASSWORD` and `AUTH_SECRET` as stack variables, and
-  a registry credential to pull the private images.
+  Portainer needs `POSTGRES_PASSWORD` and `AUTH_SECRET` as stack variables.
 - Decided 2026-10-21: GitHub Container Registry
-  (`ghcr.io/redbeegroup/cannopy-go-api` and `-web`, private, so Portainer holds
-  a read-only registry credential). Docker Hub or a self-hosted registry works
+  (`ghcr.io/redbeegroup/cannopy-go-api` and `-web`, public like the
+  repository, so Portainer pulls them without a credential). Docker Hub or a self-hosted registry works
   with two lines changed in the workflow and the stack file.
 - Decided 2026-10-21: the Portainer stack is `cannopygo` (CannopyGo, lowercased
   because Compose requires it), updated through its webhook.

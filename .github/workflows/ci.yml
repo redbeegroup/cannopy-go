@@ -84,7 +84,7 @@ jobs:
           tags: |
             type=sha,prefix=
             type=ref,event=tag
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
       - name: Build (and push on main or tag)
         uses: docker/build-push-action@v6
         with:

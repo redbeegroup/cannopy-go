@@ -20,24 +20,20 @@ app must be opened through the proxy host name, not through port 8080 directly.
 
 ## One-time setup in Portainer
 
-1. **Registry credential.** The images are private on GitHub Container
-   Registry (an anonymous pull is refused), so Portainer needs a credential.
-   Registries > Add registry > Custom:
-   - Name: `ghcr`
-   - Registry URL: `ghcr.io`
-   - Authentication: on. Username `redbeegroup`, password a GitHub personal
-     access token (classic) with the `read:packages` scope. Make it at
-     https://github.com/settings/tokens. Portainer only needs read access.
+1. **Registry credential (optional).** The repository and both images on
+   GitHub Container Registry are public, so Portainer can pull them without a
+   credential. If the images are ever made private, add one under
+   Registries > Add registry > Custom: name `ghcr`, URL `ghcr.io`,
+   authentication on, username `redbeegroup`, password a GitHub personal
+   access token (classic) with the `read:packages` scope.
 2. **Stack.** Stacks > Add stack > Repository.
    - Name: `cannopygo` (Portainer and Compose only accept lowercase, so this is
      the on-disk spelling of CannopyGo).
    - Repository URL: `https://github.com/redbeegroup/cannopy-go`
    - Repository reference: `refs/heads/main`
    - Compose path: `deploy/uat/docker-compose.yml`
-   - Authentication: on. Username `redbeegroup`, password a GitHub token that
-     can read the repository (the repository is private; a classic token with
-     the `repo` scope, or a fine-grained token with Contents read on this
-     repository). This can be the same token as step 1 if it has both scopes.
+   - Authentication: off (the repository is public). Turn it on with a GitHub
+     token that has the `repo` scope if the repository is ever made private.
    - Environment variables (the stack reads these; set them here, never in git):
 
      | Variable | Required | Notes |
